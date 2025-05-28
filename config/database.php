@@ -1,7 +1,7 @@
 <?php
 // Configurações do banco de dados
 $host = 'localhost';
-$dbname = 'unitec';
+$dbname = 'unitec_bd2';
 $username = 'root';
 $password = '';
 

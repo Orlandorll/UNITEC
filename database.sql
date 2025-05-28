@@ -155,6 +155,23 @@ CREATE TABLE lista_desejos (
     FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE
 );
 
+-- Tabela de Configurações
+CREATE TABLE configuracoes (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    nome_loja VARCHAR(100) NOT NULL,
+    email_contato VARCHAR(100) NOT NULL,
+    telefone VARCHAR(20),
+    endereco TEXT,
+    cidade VARCHAR(50),
+    estado VARCHAR(50),
+    cep VARCHAR(20),
+    descricao_loja TEXT,
+    meta_keywords TEXT,
+    meta_description TEXT,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- Inserir algumas categorias iniciais
 INSERT INTO categorias (nome, slug, descricao, icone) VALUES
 ('Smartphones', 'smartphones', 'Smartphones e celulares', 'fas fa-mobile-alt'),
@@ -206,4 +223,7 @@ INSERT INTO atributos_produtos (produto_id, nome, valor) VALUES
 (4, 'Memória', '16GB'),
 (5, 'Cor', 'Prata'),
 (5, 'Armazenamento', '256GB'),
-(6, 'Cor', 'Branco'); 
+(6, 'Cor', 'Branco');
+
+-- Inserir configurações padrão
+INSERT INTO configuracoes (nome_loja, email_contato) VALUES ('UNITEC', 'contato@unitec.com'); 

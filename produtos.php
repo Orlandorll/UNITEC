@@ -60,13 +60,13 @@ $total_paginas = ceil($total_produtos / $itens_por_pagina);
 // Adicionar paginação
 $offset = ($pagina - 1) * $itens_por_pagina;
 $sql .= " LIMIT :offset, :limit";
-$params[':offset'] = $offset;
-$params[':limit'] = $itens_por_pagina;
+$params[':offset'] = (int)$offset;
+$params[':limit'] = (int)$itens_por_pagina;
 
 // Buscar produtos
 $stmt = $conn->prepare($sql);
 foreach ($params as $key => $value) {
-    $stmt->bindValue($key, $value);
+    $stmt->bindValue($key, $value, PDO::PARAM_INT);
 }
 $stmt->execute();
 $produtos = $stmt->fetchAll();

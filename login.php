@@ -2,48 +2,60 @@
 session_start();
 require_once "config/database.php";
 
-// Se já estiver logado, redirecionar para a página apropriada
-if (isset($_SESSION['usuario_id'])) {
-    if ($_SESSION['tipo'] === 'admin') {
-        header("Location: admin/index.php");
-    } else {
-        header("Location: index.php");
-    }
-    exit;
-}
-
 $erro = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email']);
-    $senha = trim($_POST['senha']);
+    $senha = $_POST['senha'];
 
     if (empty($email) || empty($senha)) {
         $erro = "Por favor, preencha todos os campos.";
     } else {
-        // Buscar usuário pelo email
-        $sql = "SELECT * FROM usuarios WHERE email = :email AND ativo = 1";
+        $sql = "SELECT id, nome, email, senha, tipo FROM usuarios WHERE email = :email";
         $stmt = $conn->prepare($sql);
         $stmt->bindParam(':email', $email);
         $stmt->execute();
-        $usuario = $stmt->fetch();
 
-        if ($usuario && password_verify($senha, $usuario['senha'])) {
-            // Login bem-sucedido
-            $_SESSION['usuario_id'] = $usuario['id'];
-            $_SESSION['nome'] = $usuario['nome'];
-            $_SESSION['email'] = $usuario['email'];
-            $_SESSION['tipo'] = $usuario['tipo'];
+        if ($stmt->rowCount() == 1) {
+            $usuario = $stmt->fetch();
+            error_log("Login - Usuário encontrado: " . print_r($usuario, true));
+            
+            if (password_verify($senha, $usuario['senha'])) {
+                error_log("Login - Senha verificada com sucesso");
+                // Limpar sessão anterior
+                session_unset();
+                session_destroy();
+                session_start();
+                
+                // Definir novas variáveis de sessão
+                $_SESSION['usuario_id'] = $usuario['id'];
+                $_SESSION['usuario_nome'] = $usuario['nome'];
+                $_SESSION['tipo'] = $usuario['tipo'];
+                $_SESSION['nome'] = $usuario['nome'];
 
-            // Redirecionar para a página apropriada
-            if ($usuario['tipo'] === 'admin') {
-                header("Location: admin/index.php");
+                // Debug - remover em produção
+                error_log("Login - Dados do usuário: " . print_r($usuario, true));
+                error_log("Login - Sessão após login: " . print_r($_SESSION, true));
+                error_log("Login - Tipo de usuário (raw): '" . $usuario['tipo'] . "'");
+                error_log("Login - Tipo de usuário (trimmed): '" . trim($usuario['tipo']) . "'");
+                error_log("Login - Tipo de usuário (lowercase): '" . strtolower(trim($usuario['tipo'])) . "'");
+                error_log("Login - Comparação tipo === 'admin': " . (strtolower(trim($usuario['tipo'])) === 'admin' ? 'true' : 'false'));
+
+                // Redirecionar para a página apropriada
+                if (strtolower(trim($usuario['tipo'])) === 'admin') {
+                    error_log("Login - Redirecionando para admin/index.php");
+                    header("Location: admin/index.php");
+                    exit();
+                } else {
+                    error_log("Login - Redirecionando para index.php");
+                    header("Location: index.php");
+                    exit();
+                }
             } else {
-                header("Location: index.php");
+                $erro = "Senha incorreta.";
             }
-            exit;
         } else {
-            $erro = "Email ou senha incorretos.";
+            $erro = "Email não encontrado.";
         }
     }
 }
@@ -57,79 +69,164 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #0056b3;
+        }
+        
         body {
-            background: #f5f5f7;
+            background-color: #f5f5f5;
+        }
+        
+        .login-section {
             min-height: 100vh;
             display: flex;
             align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
         }
-        .login-container {
-            max-width: 400px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 20px;
-        }
+        
         .login-card {
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            padding: 30px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
         }
-        .login-title {
-            font-size: 1.5rem;
-            margin-bottom: 30px;
-            color: #1d1d1f;
+        
+        .login-header {
+            background: white;
+            padding: 30px 30px 20px;
+            border-bottom: 1px solid #eee;
             text-align: center;
         }
-        .form-label {
+        
+        .login-header h1 {
+            font-size: 24px;
+            color: #333;
+            margin: 0;
             font-weight: 500;
-            color: #1d1d1f;
         }
-        .required-field::after {
-            content: "*";
-            color: #dc3545;
-            margin-left: 4px;
+        
+        .login-header p {
+            color: #666;
+            margin: 10px 0 0;
+            font-size: 14px;
         }
+        
+        .login-body {
+            padding: 30px;
+        }
+        
+        .form-floating {
+            margin-bottom: 20px;
+        }
+        
+        .form-floating input {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 0.75rem;
+            height: auto;
+            font-size: 14px;
+        }
+        
+        .form-floating input:focus {
+            border-color: #007bff;
+            box-shadow: none;
+        }
+        
+        .form-floating label {
+            padding: 0.75rem;
+            font-size: 14px;
+            color: #666;
+        }
+        
         .btn-login {
             width: 100%;
             padding: 10px;
+            border-radius: 4px;
             font-weight: 500;
+            font-size: 14px;
+            background: #007bff;
+            border: none;
+            color: white;
+            transition: background-color 0.2s ease;
         }
-        .register-link {
+        
+        .btn-login:hover {
+            background: #0056b3;
+        }
+        
+        .login-footer {
             text-align: center;
-            margin-top: 20px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-top: 1px solid #eee;
+        }
+        
+        .login-footer p {
+            margin: 0 0 10px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .login-footer a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .login-footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .alert {
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            padding: 12px 15px;
+        }
+        
+        .form-floating>.form-control:focus~label,
+        .form-floating>.form-control:not(:placeholder-shown)~label {
+            transform: scale(.85) translateY(-0.5rem) translateX(0.15rem);
+            color: #007bff;
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
+    <div class="login-section">
         <div class="login-card">
-            <h1 class="login-title">Login</h1>
+            <div class="login-header">
+                <h1>Bem-vindo de volta!</h1>
+                <p class="mb-0">Entre com sua conta Unitec</p>
+            </div>
+            <div class="login-body">
+                <?php if (!empty($erro)): ?>
+                    <div class="alert alert-danger" role="alert">
+                        <?php echo $erro; ?>
+                    </div>
+                <?php endif; ?>
 
-            <?php if ($erro): ?>
-                <div class="alert alert-danger"><?php echo $erro; ?></div>
-            <?php endif; ?>
-
-            <form method="POST" class="needs-validation" novalidate>
-                <div class="mb-3">
-                    <label for="email" class="form-label required-field">E-mail</label>
-                    <input type="email" class="form-control" id="email" name="email" required>
-                </div>
-
-                <div class="mb-3">
-                    <label for="senha" class="form-label required-field">Senha</label>
-                    <input type="password" class="form-control" id="senha" name="senha" required>
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-login">
-                    <i class="fas fa-sign-in-alt"></i> Entrar
-                </button>
-            </form>
-
-            <div class="register-link">
-                <p class="mb-0">
-                    Não tem uma conta? <a href="cadastro.php">Cadastre-se</a>
-                </p>
+                <form method="POST" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+                    <div class="form-floating">
+                        <input type="email" class="form-control" id="email" name="email" placeholder="nome@exemplo.com" required>
+                        <label for="email">Email</label>
+                    </div>
+                    <div class="form-floating">
+                        <input type="password" class="form-control" id="senha" name="senha" placeholder="Senha" required>
+                        <label for="senha">Senha</label>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-login">
+                            <i class="fas fa-sign-in-alt me-2"></i>Entrar
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="login-footer">
+                <p class="mb-2">Não tem uma conta? <a href="cadastro.php">Cadastre-se</a></p>
+                <a href="recuperar-senha.php">Esqueceu sua senha?</a>
             </div>
         </div>
     </div>

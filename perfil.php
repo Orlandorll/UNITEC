@@ -88,7 +88,7 @@ $sql = "SELECT p.*, COUNT(ip.id) as total_itens
         LEFT JOIN itens_pedido ip ON p.id = ip.pedido_id 
         WHERE p.usuario_id = :usuario_id 
         GROUP BY p.id 
-        ORDER BY p.data_criacao DESC";
+        ORDER BY p.data_pedido DESC";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
 $stmt->execute();

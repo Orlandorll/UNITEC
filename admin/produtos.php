@@ -14,41 +14,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['acao'])) {
         switch ($_POST['acao']) {
             case 'desativar':
-                $usuario_id = (int)$_POST['usuario_id'];
-                // Verificar se não é um administrador
-                $check_sql = "SELECT tipo FROM usuarios WHERE id = :id";
-                $check_stmt = $conn->prepare($check_sql);
-                $check_stmt->bindParam(':id', $usuario_id);
-                $check_stmt->execute();
-                $usuario = $check_stmt->fetch();
-                
-                if ($usuario['tipo'] !== 'admin') {
-                    $mensagem = "Usuário desativado com sucesso!";
-                } else {
-                    $mensagem = "Não é possível desativar um administrador!";
-                }
+                $produto_id = (int)$_POST['produto_id'];
+                $sql = "UPDATE produtos SET status = 0 WHERE id = :id";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':id', $produto_id);
+                $stmt->execute();
+                $mensagem = "Produto desativado com sucesso!";
                 break;
 
             case 'ativar':
-                $usuario_id = (int)$_POST['usuario_id'];
-                $mensagem = "Usuário ativado com sucesso!";
+                $produto_id = (int)$_POST['produto_id'];
+                $sql = "UPDATE produtos SET status = 1 WHERE id = :id";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':id', $produto_id);
+                $stmt->execute();
+                $mensagem = "Produto ativado com sucesso!";
                 break;
         }
     }
 }
 
-// Buscar todos os usuários
-$sql = "SELECT id, nome, email, tipo, data_criacao FROM usuarios ORDER BY data_criacao DESC";
+// Buscar todos os produtos com suas categorias
+$sql = "SELECT p.*, c.nome as categoria_nome 
+        FROM produtos p 
+        LEFT JOIN categorias c ON p.categoria_id = c.id 
+        ORDER BY p.data_criacao DESC";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
-$usuarios = $stmt->fetchAll();
+$produtos = $stmt->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerenciar Usuários - Painel Administrativo</title>
+    <title>Gerenciar Produtos - Painel Administrativo</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -67,43 +67,6 @@ $usuarios = $stmt->fetchAll();
             margin-bottom: 30px;
             color: #1d1d1f;
         }
-        .user-card {
-            border: 1px solid #d2d2d7;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            overflow: hidden;
-        }
-        .user-header {
-            background: #f5f5f7;
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .user-name {
-            font-weight: 600;
-            color: #1d1d1f;
-        }
-        .user-email {
-            color: #6e6e73;
-        }
-        .user-body {
-            padding: 20px;
-        }
-        .user-info {
-            margin-bottom: 10px;
-        }
-        .user-info-label {
-            font-weight: 500;
-            color: #6e6e73;
-        }
-        .user-info-value {
-            color: #1d1d1f;
-        }
-        .user-actions {
-            display: flex;
-            gap: 10px;
-        }
         .status-badge {
             padding: 5px 10px;
             border-radius: 15px;
@@ -118,6 +81,15 @@ $usuarios = $stmt->fetchAll();
             background: #ffebee;
             color: #c62828;
         }
+        .preco {
+            font-weight: 600;
+            color: #1d1d1f;
+        }
+        .preco-promocional {
+            color: #c62828;
+            text-decoration: line-through;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -127,9 +99,9 @@ $usuarios = $stmt->fetchAll();
         <div class="container">
             <div class="admin-container">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1 class="admin-title">Gerenciar Usuários</h1>
-                    <a href="adicionar-usuario.php" class="btn btn-primary">
-                        <i class="fas fa-plus"></i> Novo Usuário
+                    <h1 class="admin-title">Gerenciar Produtos</h1>
+                    <a href="adicionar-produto.php" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Novo Produto
                     </a>
                 </div>
 
@@ -137,9 +109,9 @@ $usuarios = $stmt->fetchAll();
                     <div class="alert alert-success"><?php echo $mensagem; ?></div>
                 <?php endif; ?>
 
-                <?php if (empty($usuarios)): ?>
+                <?php if (empty($produtos)): ?>
                     <div class="alert alert-info">
-                        Nenhum usuário cadastrado.
+                        Nenhum produto cadastrado.
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">
@@ -147,50 +119,49 @@ $usuarios = $stmt->fetchAll();
                             <thead>
                                 <tr>
                                     <th>Nome</th>
-                                    <th>E-mail</th>
-                                    <th>Tipo</th>
-                                    <th>Data de Cadastro</th>
+                                    <th>Categoria</th>
+                                    <th>Preço</th>
+                                    <th>Estoque</th>
                                     <th>Status</th>
                                     <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($usuarios as $usuario): ?>
+                                <?php foreach ($produtos as $produto): ?>
                                     <tr>
-                                        <td><?php echo htmlspecialchars($usuario['nome']); ?></td>
-                                        <td><?php echo htmlspecialchars($usuario['email']); ?></td>
+                                        <td><?php echo htmlspecialchars($produto['nome']); ?></td>
+                                        <td><?php echo htmlspecialchars($produto['categoria_nome'] ?? 'Sem categoria'); ?></td>
                                         <td>
-                                            <?php
-                                            $tipo_labels = [
-                                                'admin' => 'Administrador',
-                                                'cliente' => 'Cliente'
-                                            ];
-                                            echo $tipo_labels[$usuario['tipo']] ?? 'Cliente';
-                                            ?>
+                                            <?php if ($produto['preco_promocional']): ?>
+                                                <span class="preco-promocional">R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                                <span class="preco">R$ <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?></span>
+                                            <?php else: ?>
+                                                <span class="preco">R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                            <?php endif; ?>
                                         </td>
-                                        <td><?php echo date('d/m/Y H:i', strtotime($usuario['data_criacao'])); ?></td>
+                                        <td><?php echo $produto['estoque']; ?></td>
                                         <td>
-                                            <span class="badge status-badge status-<?php echo $usuario['tipo'] === 'admin' ? 'ativo' : 'inativo'; ?>">
-                                                <?php echo $usuario['tipo'] === 'admin' ? 'Ativo' : 'Inativo'; ?>
+                                            <span class="badge status-badge status-<?php echo $produto['status'] ? 'ativo' : 'inativo'; ?>">
+                                                <?php echo $produto['status'] ? 'Ativo' : 'Inativo'; ?>
                                             </span>
                                         </td>
                                         <td>
                                             <div class="btn-group">
-                                                <a href="editar-usuario.php?id=<?php echo $usuario['id']; ?>" class="btn btn-sm btn-outline-primary">
+                                                <a href="editar-produto.php?id=<?php echo $produto['id']; ?>" class="btn btn-sm btn-outline-primary">
                                                     <i class="fas fa-edit"></i>
                                                 </a>
-                                                <?php if ($usuario['tipo'] !== 'admin'): ?>
+                                                <?php if ($produto['status']): ?>
                                                     <form method="POST" class="d-inline">
                                                         <input type="hidden" name="acao" value="desativar">
-                                                        <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Tem certeza que deseja desativar este usuário?')">
+                                                        <input type="hidden" name="produto_id" value="<?php echo $produto['id']; ?>">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Tem certeza que deseja desativar este produto?')">
                                                             <i class="fas fa-ban"></i>
                                                         </button>
                                                     </form>
                                                 <?php else: ?>
                                                     <form method="POST" class="d-inline">
                                                         <input type="hidden" name="acao" value="ativar">
-                                                        <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
+                                                        <input type="hidden" name="produto_id" value="<?php echo $produto['id']; ?>">
                                                         <button type="submit" class="btn btn-sm btn-outline-success">
                                                             <i class="fas fa-check"></i>
                                                         </button>
