@@ -1,6 +1,6 @@
 <?php
 // Verificar se o usuário está logado e é administrador
-if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
+if (!isset($_SESSION['usuario_id']) || $_SESSION['usuario_tipo'] !== 'admin') {
     header("Location: ../login.php");
     exit;
 }
@@ -58,6 +58,7 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
                     </a>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="configuracoes.php">Configurações Gerais</a></li>
+                        <li><a class="dropdown-item" href="gerenciar-hero.php">Gerenciar Hero Section</a></li>
                         <li><a class="dropdown-item" href="administradores.php">Gerenciar Administradores</a></li>
                     </ul>
                 </li>
@@ -67,7 +68,7 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
                         <i class="fas fa-user-circle me-1"></i>
-                        <?php echo htmlspecialchars($_SESSION['nome']); ?>
+                        <?php echo htmlspecialchars($_SESSION['usuario_nome']); ?>
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item" href="perfil.php">Meu Perfil</a></li>

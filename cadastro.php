@@ -17,13 +17,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Validações
     if (empty($nome) || empty($email) || empty($senha) || empty($confirmar_senha)) {
         $erro = "Por favor, preencha todos os campos obrigatórios.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $erro = "Por favor, insira um endereço de Gmail válido.";
     } elseif ($senha !== $confirmar_senha) {
         $erro = "As senhas não coincidem.";
     } elseif (strlen($senha) < 6) {
         $erro = "A senha deve ter pelo menos 6 caracteres.";
     } elseif ($tipo_usuario === 'empresa' && empty($nif)) {
         $erro = "O NIF é obrigatório para empresas.";
-    } else {
+    } elseif (!empty($telefone)) {
+        // Validar telefone angolano
+        $telefone_limpo = preg_replace('/[^0-9]/', '', $telefone);
+        if (strlen($telefone_limpo) !== 9) {
+            $erro = "O telefone deve ter exatamente 9 dígitos (formato: 9XXXXXXXX).";
+        } elseif (!preg_match('/^[9][0-9]{8}$/', $telefone_limpo)) {
+            $erro = "O telefone deve começar com 9 e ter 9 dígitos (formato: 9XXXXXXXX).";
+        } else {
+            // Formatar telefone com +244
+            $telefone = '+244' . $telefone_limpo;
+        }
+    }
+    
+    // Se não há erros até agora, verificar email duplicado e inserir usuário
+    if (empty($erro)) {
         // Verificar se o email já existe
         $sql = "SELECT id FROM usuarios WHERE email = :email";
         $stmt = $conn->prepare($sql);
@@ -31,7 +47,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
-            $erro = "Este email já está cadastrado.";
+            $erro = "❌ Este Gmail já está registrado no sistema. Por favor, use outro Gmail ou faça login.";
         } else {
             // Inserir novo usuário
             $senha_hash = password_hash($senha, PASSWORD_DEFAULT);
@@ -50,9 +66,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $stmt->bindParam(':tipo', $tipo);
 
             if ($stmt->execute()) {
-                $sucesso = "Cadastro realizado com sucesso! Você já pode fazer login.";
+                $sucesso = "✅ Cadastro realizado com sucesso! Sua conta foi criada e você já pode fazer login.";
             } else {
-                $erro = "Erro ao realizar cadastro. Por favor, tente novamente.";
+                $erro = "❌ Erro ao realizar cadastro. Por favor, tente novamente.";
             }
         }
     }
@@ -129,6 +145,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             border-radius: 8px;
             margin-bottom: 20px;
         }
+        .telefone-input {
+            position: relative;
+        }
+        .telefone-prefix {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6c757d;
+            font-weight: 500;
+            z-index: 10;
+            line-height: 1;
+        }
+        .telefone-input input {
+            padding-left: 50px !important;
+        }
+        .telefone-input .form-floating > label {
+            padding-left: 50px;
+        }
+        .telefone-help {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -184,9 +224,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="form-floating">
-                                <input type="tel" class="form-control" id="telefone" name="telefone" placeholder="Telefone">
+                            <div class="form-floating telefone-input">
+                                <span class="telefone-prefix">+244</span>
+                                <input type="tel" class="form-control" id="telefone" name="telefone" 
+                                       placeholder="9XXXXXXXX" maxlength="9" pattern="[0-9]{9}" 
+                                       title="Digite apenas 9 dígitos numéricos (formato angolano)">
                                 <label for="telefone">Telefone</label>
+                                <div class="telefone-help">
+                                    <i class="fas fa-info-circle"></i> Digite apenas os 9 dígitos (ex: 912345678)
+                                </div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -227,12 +273,89 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         document.addEventListener('DOMContentLoaded', function() {
             const tipoUsuario = document.getElementById('tipo_usuario');
             const nifInput = document.getElementById('nif');
+            const telefoneInput = document.getElementById('telefone');
 
+            // Validação do tipo de usuário
             tipoUsuario.addEventListener('change', function() {
                 if (this.value === 'empresa') {
                     nifInput.required = true;
                 } else {
                     nifInput.required = false;
+                }
+            });
+
+            // Validação do telefone angolano
+            telefoneInput.addEventListener('input', function(e) {
+                // Remover todos os caracteres não numéricos
+                let value = this.value.replace(/[^0-9]/g, '');
+                
+                // Limitar a exatamente 9 dígitos
+                if (value.length > 9) {
+                    value = value.substring(0, 9);
+                }
+                
+                // Atualizar o valor do campo
+                this.value = value;
+                
+                // Validar formato angolano (deve começar com 9 e ter exatamente 9 dígitos)
+                if (value.length > 0 && value.charAt(0) !== '9') {
+                    this.setCustomValidity('O telefone angolano deve começar com 9');
+                } else if (value.length > 0 && value.length !== 9) {
+                    this.setCustomValidity('O telefone deve ter exatamente 9 dígitos (formato: 9XXXXXXXX)');
+                } else {
+                    this.setCustomValidity('');
+                }
+            });
+
+            // Prevenir colagem de caracteres inválidos
+            telefoneInput.addEventListener('paste', function(e) {
+                e.preventDefault();
+                let pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                let numericOnly = pastedText.replace(/[^0-9]/g, '');
+                
+                if (numericOnly.length > 9) {
+                    numericOnly = numericOnly.substring(0, 9);
+                }
+                
+                this.value = numericOnly;
+            });
+
+            // Prevenir teclas não numéricas
+            telefoneInput.addEventListener('keypress', function(e) {
+                const charCode = e.which ? e.which : e.keyCode;
+                if (charCode > 31 && (charCode < 48 || charCode > 57)) {
+                    e.preventDefault();
+                }
+            });
+
+            // Validação de email em tempo real
+            const emailInput = document.getElementById('email');
+            emailInput.addEventListener('blur', function() {
+                const email = this.value.trim();
+                if (email && !isValidEmail(email)) {
+                    this.setCustomValidity('este email já está registrado no sistema, por favor use outro email ou faça login.');
+                    this.classList.add('is-invalid');
+                } else {
+                    this.setCustomValidity('');
+                    this.classList.remove('is-invalid');
+                }
+            });
+
+            // Função para validar email
+            function isValidEmail(email) {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                return emailRegex.test(email);
+            }
+
+            // Validação do formulário antes do envio
+            const form = document.querySelector('form');
+            form.addEventListener('submit', function(e) {
+                const email = emailInput.value.trim();
+                if (email && !isValidEmail(email)) {
+                    e.preventDefault();
+                    alert('Por favor, insira um endereço de Gmail válido.');
+                    emailInput.focus();
+                    return false;
                 }
             });
         });

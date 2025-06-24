@@ -1,0 +1,17 @@
+Options +FollowSymLinks
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /UNITEC/uploads/
+    
+    # Permitir acesso direto a arquivos de imagem
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp)$">
+        Order Allow,Deny
+        Allow from all
+    </FilesMatch>
+</IfModule>
+
+# Permitir acesso a arquivos de imagem
+<FilesMatch "\.(jpg|jpeg|png|gif|webp)$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch> 

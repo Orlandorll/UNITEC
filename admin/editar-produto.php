@@ -3,7 +3,7 @@ session_start();
 require_once "../config/database.php";
 
 // Verificar se o usuário está logado e é administrador
-if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
+if (!isset($_SESSION['usuario_id']) || $_SESSION['usuario_tipo'] !== 'admin') {
     header("Location: ../login.php");
     exit;
 }
@@ -34,6 +34,13 @@ $stmt = $conn->prepare($sql);
 $stmt->execute();
 $categorias = $stmt->fetchAll();
 
+// Buscar imagens do produto
+$sql = "SELECT * FROM imagens_produtos WHERE produto_id = :produto_id ORDER BY imagem_principal DESC";
+$stmt = $conn->prepare($sql);
+$stmt->bindParam(':produto_id', $produto_id);
+$stmt->execute();
+$imagens = $stmt->fetchAll();
+
 // Processar o formulário
 $mensagem = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -44,40 +51,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $estoque = (int)$_POST['estoque'];
     $categoria_id = !empty($_POST['categoria_id']) ? (int)$_POST['categoria_id'] : null;
     $status = isset($_POST['status']) ? 1 : 0;
+    $destaque = isset($_POST['destaque']) ? 1 : 0;
+    $nova_imagem = null;
 
-    if (empty($nome) || empty($preco)) {
-        $mensagem = "Por favor, preencha todos os campos obrigatórios.";
-    } else {
-        $sql = "UPDATE produtos SET 
-                nome = :nome,
-                descricao = :descricao,
-                preco = :preco,
-                preco_promocional = :preco_promocional,
-                estoque = :estoque,
-                categoria_id = :categoria_id,
-                status = :status
-                WHERE id = :id";
+    // Processar nova imagem
+    if (isset($_FILES['imagem']) && $_FILES['imagem']['error'] === UPLOAD_ERR_OK) {
+        $arquivo = $_FILES['imagem'];
+        $extensao = strtolower(pathinfo($arquivo['name'], PATHINFO_EXTENSION));
+        $extensoes_permitidas = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    
+        if (!in_array($extensao, $extensoes_permitidas)) {
+            $mensagem = "A imagem deve ser JPG, JPEG, PNG, GIF ou WebP.";
+        } elseif ($arquivo['size'] > 5 * 1024 * 1024) { // 5MB
+            $mensagem = "A imagem deve ter no máximo 5MB.";
+        } else {
+            $nome_arquivo = uniqid() . '.' . $extensao;
+            $diretorio = "../uploads/produtos/";
+    
+            if (!is_dir($diretorio)) {
+                mkdir($diretorio, 0777, true);
+            }
+    
+            if (move_uploaded_file($arquivo['tmp_name'], $diretorio . $nome_arquivo)) {
+                $nova_imagem = $nome_arquivo;
+            } else {
+                $mensagem = "Erro ao fazer upload da imagem.";
+            }
+        }
+    }
 
-        $stmt = $conn->prepare($sql);
-        $stmt->bindParam(':nome', $nome);
-        $stmt->bindParam(':descricao', $descricao);
-        $stmt->bindParam(':preco', $preco);
-        $stmt->bindParam(':preco_promocional', $preco_promocional);
-        $stmt->bindParam(':estoque', $estoque);
-        $stmt->bindParam(':categoria_id', $categoria_id);
-        $stmt->bindParam(':status', $status);
-        $stmt->bindParam(':id', $produto_id);
+    if (empty($mensagem)) {
+        try {
+            $conn->beginTransaction();
 
-        if ($stmt->execute()) {
+            // Atualizar produto
+            $sql = "UPDATE produtos SET 
+                    nome = :nome,
+                    descricao = :descricao,
+                    preco = :preco,
+                    preco_promocional = :preco_promocional,
+                    estoque = :estoque,
+                    categoria_id = :categoria_id,
+                    status = :status,
+                    destaque = :destaque
+                    WHERE id = :id";
+
+            $stmt = $conn->prepare($sql);
+            $stmt->bindParam(':nome', $nome);
+            $stmt->bindParam(':descricao', $descricao);
+            $stmt->bindParam(':preco', $preco);
+            $stmt->bindParam(':preco_promocional', $preco_promocional);
+            $stmt->bindParam(':estoque', $estoque);
+            $stmt->bindParam(':categoria_id', $categoria_id);
+            $stmt->bindParam(':status', $status);
+            $stmt->bindParam(':destaque', $destaque);
+            $stmt->bindParam(':id', $produto_id);
+            $stmt->execute();
+
+            // Se houver nova imagem, atualizar na tabela imagens_produtos
+            if ($nova_imagem) {
+                // Desativar imagem principal atual
+                $sql = "UPDATE imagens_produtos SET imagem_principal = 0 WHERE produto_id = :produto_id";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':produto_id', $produto_id);
+                $stmt->execute();
+
+                // Inserir nova imagem como principal
+                $sql = "INSERT INTO imagens_produtos (produto_id, caminho_imagem, imagem_principal) 
+                        VALUES (:produto_id, :caminho_imagem, 1)";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':produto_id', $produto_id);
+                $stmt->bindParam(':caminho_imagem', 'uploads/produtos/' . $nova_imagem);
+                $stmt->execute();
+            }
+
+            $conn->commit();
             $mensagem = "Produto atualizado com sucesso!";
-            // Atualizar os dados do produto
+
+            // Atualizar dados do produto e imagens
             $sql = "SELECT * FROM produtos WHERE id = :id";
             $stmt = $conn->prepare($sql);
             $stmt->bindParam(':id', $produto_id);
             $stmt->execute();
             $produto = $stmt->fetch();
-        } else {
-            $mensagem = "Erro ao atualizar o produto.";
+
+            $sql = "SELECT * FROM imagens_produtos WHERE produto_id = :produto_id ORDER BY imagem_principal DESC";
+            $stmt = $conn->prepare($sql);
+            $stmt->bindParam(':produto_id', $produto_id);
+            $stmt->execute();
+            $imagens = $stmt->fetchAll();
+
+        } catch (PDOException $e) {
+            $conn->rollBack();
+            $mensagem = "Erro ao atualizar o produto: " . $e->getMessage();
         }
     }
 }
@@ -125,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="alert alert-success"><?php echo $mensagem; ?></div>
                 <?php endif; ?>
 
-                <form method="POST" class="needs-validation" novalidate>
+                <form method="POST" class="needs-validation" novalidate enctype="multipart/form-data">
                     <div class="row">
                         <div class="col-md-8">
                             <div class="mb-3">
@@ -141,18 +207,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-3">
-                                        <label for="preco" class="form-label">Preço *</label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="preco" name="preco" step="0.01" value="<?php echo $produto['preco']; ?>" required>
-                                        </div>
+    <label for="preco" class="form-label">Preço *</label>
+    <div class="input-group">
+        <span class="input-group-text">KZ</span>
+        <input type="number" class="form-control" id="preco" name="preco" step="0.01" value="<?php echo number_format($produto['preco'], 2, ',', '.'); ?>" required>
+    </div>
+</div>
+
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="preco_promocional" class="form-label">Preço Promocional</label>
                                         <div class="input-group">
-                                            <span class="input-group-text">R$</span>
+                                            <span class="input-group-text">Kz</span>
                                             <input type="number" class="form-control" id="preco_promocional" name="preco_promocional" step="0.01" value="<?php echo $produto['preco_promocional']; ?>">
                                         </div>
                                     </div>
@@ -180,9 +248,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="mb-3">
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="status" name="status" <?php echo $produto['status'] ? 'checked' : ''; ?>>
+                                    <input type="checkbox" class="form-check-input" id="status" name="status" 
+                                           <?php echo $produto['status'] ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="status">Produto Ativo</label>
                                 </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input type="checkbox" class="form-check-input" id="destaque" name="destaque" 
+                                           <?php echo $produto['destaque'] ? 'checked' : ''; ?>>
+                                    <label class="form-check-label" for="destaque">Produto em Destaque</label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="imagem" class="form-label">Imagem do Produto</label>
+                                <?php if (!empty($imagens)): ?>
+                                    <div class="mb-2">
+                                        <img src="<?php echo get_imagem_produto_segura($imagens[0]['caminho_imagem']); ?>" 
+                                             alt="Imagem atual" 
+                                             style="max-width: 200px; max-height: 200px; object-fit: cover; border-radius: 4px;">
+                                    </div>
+                                <?php endif; ?>
+                                <input type="file" class="form-control" id="imagem" name="imagem" 
+                                       accept="image/jpeg,image/png,image/gif,image/webp">
+                                <div class="form-text">
+                                    Formatos permitidos: JPG, JPEG, PNG, GIF, WebP<br>
+                                    Tamanho máximo: 5MB
+                                </div>
+                                <img id="preview" class="preview-imagem mt-2">
                             </div>
                         </div>
                     </div>

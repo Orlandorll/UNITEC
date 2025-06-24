@@ -11,10 +11,28 @@
                             com preços competitivos e excelente atendimento ao cliente.
                         </p>
                         <div class="footer-social">
-                            <a href="#" class="social-link"><i class="fab fa-facebook-f"></i></a>
-                            <a href="#" class="social-link"><i class="fab fa-twitter"></i></a>
-                            <a href="#" class="social-link"><i class="fab fa-instagram"></i></a>
-                            <a href="#" class="social-link"><i class="fab fa-linkedin-in"></i></a>
+                            <?php
+                            // Buscar configurações da loja
+                            $sql = "SELECT facebook, twitter, instagram FROM configuracoes WHERE id = 1";
+                            $stmt = $conn->prepare($sql);
+                            $stmt->execute();
+                            $config = $stmt->fetch(PDO::FETCH_ASSOC);
+                            ?>
+                            <?php if (!empty($config['facebook'])): ?>
+                                <a href="<?php echo htmlspecialchars($config['facebook']); ?>" class="social-link" target="_blank">
+                                    <i class="fab fa-facebook-f"></i>
+                                </a>
+                            <?php endif; ?>
+                            <?php if (!empty($config['twitter'])): ?>
+                                <a href="<?php echo htmlspecialchars($config['twitter']); ?>" class="social-link" target="_blank">
+                                    <i class="fab fa-twitter"></i>
+                                </a>
+                            <?php endif; ?>
+                            <?php if (!empty($config['instagram'])): ?>
+                                <a href="<?php echo htmlspecialchars($config['instagram']); ?>" class="social-link" target="_blank">
+                                    <i class="fab fa-instagram"></i>
+                                </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -33,11 +51,65 @@
                     <div class="footer-widget">
                         <h4 class="footer-title">Categorias</h4>
                         <ul class="footer-links">
-                            <li><a href="categoria.php?slug=smartphones">Smartphones</a></li>
-                            <li><a href="categoria.php?slug=computadores">Computadores</a></li>
-                            <li><a href="categoria.php?slug=tablets">Tablets</a></li>
-                            <li><a href="categoria.php?slug=gaming">Gaming</a></li>
-                            <li><a href="categoria.php?slug=acessorios">Acessórios</a></li>
+                            <?php
+                            try {
+                                // Buscar categorias principais
+                                $sql = "SELECT id, nome FROM categorias WHERE status = 1 ORDER BY nome LIMIT 5";
+                                $stmt = $conn->prepare($sql);
+                                $stmt->execute();
+                                $categorias = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                
+                                if (count($categorias) > 0) {
+                                    foreach ($categorias as $cat):
+                                    ?>
+                                        <li>
+                                            <a href="produtos.php?categoria=<?php echo htmlspecialchars($cat['id']); ?>">
+                                                <?php echo htmlspecialchars($cat['nome']); ?>
+                                            </a>
+                                        </li>
+                                    <?php 
+                                    endforeach;
+                                } else {
+                                    // Se não houver categorias, mostrar categorias padrão
+                                    $categorias_padrao = [
+                                        ['id' => 1, 'nome' => 'Smartphones'],
+                                        ['id' => 2, 'nome' => 'Computadores'],
+                                        ['id' => 3, 'nome' => 'Tablets'],
+                                        ['id' => 4, 'nome' => 'Acessórios'],
+                                        ['id' => 5, 'nome' => 'Gaming']
+                                    ];
+                                    
+                                    foreach ($categorias_padrao as $cat):
+                                    ?>
+                                        <li>
+                                            <a href="produtos.php?categoria=<?php echo htmlspecialchars($cat['id']); ?>">
+                                                <?php echo htmlspecialchars($cat['nome']); ?>
+                                            </a>
+                                        </li>
+                                    <?php 
+                                    endforeach;
+                                }
+                            } catch (PDOException $e) {
+                                // Em caso de erro, mostrar categorias padrão
+                                $categorias_padrao = [
+                                    ['id' => 1, 'nome' => 'Smartphones'],
+                                    ['id' => 2, 'nome' => 'Computadores'],
+                                    ['id' => 3, 'nome' => 'Tablets'],
+                                    ['id' => 4, 'nome' => 'Acessórios'],
+                                    ['id' => 5, 'nome' => 'Gaming']
+                                ];
+                                
+                                foreach ($categorias_padrao as $cat):
+                                ?>
+                                    <li>
+                                        <a href="produtos.php?categoria=<?php echo htmlspecialchars($cat['id']); ?>">
+                                            <?php echo htmlspecialchars($cat['nome']); ?>
+                                        </a>
+                                    </li>
+                                <?php 
+                                endforeach;
+                            }
+                            ?>
                         </ul>
                     </div>
                 </div>
@@ -45,17 +117,24 @@
                     <div class="footer-widget">
                         <h4 class="footer-title">Contato</h4>
                         <ul class="footer-contact">
+                            <?php
+                            // Buscar informações de contato
+                            $sql = "SELECT endereco, telefone, email_contato FROM configuracoes WHERE id = 1";
+                            $stmt = $conn->prepare($sql);
+                            $stmt->execute();
+                            $contato = $stmt->fetch(PDO::FETCH_ASSOC);
+                            ?>
                             <li>
                                 <i class="fas fa-map-marker-alt"></i>
-                                <span>Luanda, Angola</span>
+                                <span><?php echo htmlspecialchars($contato['endereco'] ?? 'Luanda, Angola'); ?></span>
                             </li>
                             <li>
                                 <i class="fas fa-phone-alt"></i>
-                                <span>(+244) 937 9609 636</span>
+                                <span><?php echo htmlspecialchars($contato['telefone'] ?? '(+244) 937 9609 636'); ?></span>
                             </li>
                             <li>
                                 <i class="fas fa-envelope"></i>
-                                <span>unitec01@gmail.com</span>
+                                <span><?php echo htmlspecialchars($contato['email_contato'] ?? 'unitec01@gmail.com'); ?></span>
                             </li>
                         </ul>
                     </div>
@@ -73,7 +152,11 @@
                 </div>
                 <div class="col-md-6">
                     <div class="payment-methods">
-                        <img src="assets/images/payment-methods.png" alt="Métodos de Pagamento">
+                        <i class="fab fa-cc-visa"></i>
+                        <i class="fab fa-cc-mastercard"></i>
+                        <i class="fab fa-cc-paypal"></i>
+                        <i class="fab fa-cc-apple-pay"></i>
+                        <i class="fab fa-cc-amex"></i>
                     </div>
                 </div>
             </div>

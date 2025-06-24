@@ -3,7 +3,7 @@ session_start();
 require_once "../config/database.php";
 
 // Verificar se o usuário está logado e é administrador
-if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
+if (!isset($_SESSION['usuario_id']) || $_SESSION['usuario_tipo'] !== 'admin') {
     header("Location: ../login.php");
     exit;
 }
@@ -14,14 +14,14 @@ $sql = "CREATE TABLE IF NOT EXISTS configuracoes (
     nome_loja VARCHAR(100) NOT NULL,
     email_contato VARCHAR(100) NOT NULL,
     telefone VARCHAR(20),
+    whatsapp VARCHAR(20),
     endereco TEXT,
     cidade VARCHAR(50),
-    provincia VARCHAR(50),
+    estado VARCHAR(50),
     nif VARCHAR(20),
     descricao_loja TEXT,
     meta_keywords TEXT,
     meta_description TEXT,
-    whatsapp VARCHAR(20),
     facebook VARCHAR(100),
     instagram VARCHAR(100),
     twitter VARCHAR(100),
@@ -30,6 +30,42 @@ $sql = "CREATE TABLE IF NOT EXISTS configuracoes (
     data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 )";
 $conn->exec($sql);
+
+// Verificar se a tabela existe e tem todas as colunas necessárias
+try {
+    $colunas_necessarias = [
+        'nome_loja' => 'VARCHAR(100) NOT NULL',
+        'email_contato' => 'VARCHAR(100) NOT NULL',
+        'telefone' => 'VARCHAR(20)',
+        'whatsapp' => 'VARCHAR(20)',
+        'endereco' => 'TEXT',
+        'cidade' => 'VARCHAR(50)',
+        'estado' => 'VARCHAR(50)',
+        'nif' => 'VARCHAR(20)',
+        'descricao_loja' => 'TEXT',
+        'meta_keywords' => 'TEXT',
+        'meta_description' => 'TEXT',
+        'facebook' => 'VARCHAR(100)',
+        'instagram' => 'VARCHAR(100)',
+        'twitter' => 'VARCHAR(100)',
+        'horario_funcionamento' => 'TEXT'
+    ];
+
+    // Verificar cada coluna
+    foreach ($colunas_necessarias as $coluna => $tipo) {
+        $stmt = $conn->prepare("SHOW COLUMNS FROM configuracoes WHERE Field = :coluna");
+        $stmt->bindParam(':coluna', $coluna);
+        $stmt->execute();
+        
+        if (!$stmt->fetch()) {
+            // Se a coluna não existe, adiciona
+            $sql = "ALTER TABLE configuracoes ADD COLUMN $coluna $tipo";
+            $conn->exec($sql);
+        }
+    }
+} catch (PDOException $e) {
+    error_log("Erro ao verificar/adicionar colunas: " . $e->getMessage());
+}
 
 // Inserir configurações padrão se não existir
 $sql = "INSERT INTO configuracoes (nome_loja, email_contato) 
@@ -69,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 telefone = :telefone,
                 endereco = :endereco,
                 cidade = :cidade,
-                provincia = :provincia,
+                estado = :estado,
                 nif = :nif,
                 descricao_loja = :descricao_loja,
                 meta_keywords = :meta_keywords,
@@ -88,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bindParam(':telefone', $telefone);
         $stmt->bindParam(':endereco', $endereco);
         $stmt->bindParam(':cidade', $cidade);
-        $stmt->bindParam(':provincia', $provincia);
+        $stmt->bindParam(':estado', $provincia);
         $stmt->bindParam(':nif', $nif);
         $stmt->bindParam(':descricao_loja', $descricao_loja);
         $stmt->bindParam(':meta_keywords', $meta_keywords);

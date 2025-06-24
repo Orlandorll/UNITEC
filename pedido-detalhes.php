@@ -1,10 +1,15 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
 
 // Verificar se o usuário está logado
 if (!isset($_SESSION['usuario_id'])) {
-    header("Location: login.php?redirect=pedido-detalhes.php");
+    $redirect = "pedido-detalhes.php";
+    if (isset($_GET['id'])) {
+        $redirect .= "?id=" . $_GET['id'];
+    }
+    header("Location: login.php?redirect=" . urlencode($redirect));
     exit;
 }
 
@@ -17,7 +22,10 @@ if (!isset($_GET['id'])) {
 $pedido_id = $_GET['id'];
 
 // Buscar informações do pedido
-$sql = "SELECT p.*, u.nome as usuario_nome, u.email as usuario_email 
+$sql = "SELECT p.*, u.nome as nome_usuario, u.email,
+        (SELECT SUM(ip.preco * ip.quantidade) 
+         FROM itens_pedido ip 
+         WHERE ip.pedido_id = p.id) as total_calculado
         FROM pedidos p 
         JOIN usuarios u ON p.usuario_id = u.id 
         WHERE p.id = :pedido_id AND p.usuario_id = :usuario_id";
@@ -33,15 +41,26 @@ if (!$pedido) {
 }
 
 // Buscar itens do pedido
-$sql = "SELECT ip.*, pr.nome as produto_nome, 
-        (SELECT caminho_imagem FROM imagens_produtos WHERE produto_id = pr.id AND imagem_principal = 1 LIMIT 1) as imagem
+$sql = "SELECT ip.*, p.nome as produto_nome,
+        (SELECT caminho_imagem FROM imagens_produtos 
+         WHERE produto_id = p.id AND imagem_principal = 1 
+         LIMIT 1) as imagem,
+        (ip.preco * ip.quantidade) as subtotal_item
         FROM itens_pedido ip 
-        JOIN produtos pr ON ip.produto_id = pr.id 
+        JOIN produtos p ON ip.produto_id = p.id 
         WHERE ip.pedido_id = :pedido_id";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':pedido_id', $pedido_id);
 $stmt->execute();
 $itens = $stmt->fetchAll();
+
+// Calcular valores
+$subtotal = 0;
+foreach ($itens as $item) {
+    $subtotal += ($item['preco'] * $item['quantidade']);
+}
+$frete = 0; // Frete grátis
+$total = $subtotal + $frete;
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -181,9 +200,14 @@ $itens = $stmt->fetchAll();
                     <i class="fas fa-arrow-left"></i> Voltar para Meus Pedidos
                 </a>
 
-                <h1 class="order-details-title">
-                    Pedido #<?php echo str_pad($pedido['id'], 8, '0', STR_PAD_LEFT); ?>
-                </h1>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h3 mb-0">Detalhes do Pedido #<?php echo str_pad($pedido['id'], 8, '0', STR_PAD_LEFT); ?></h1>
+                    <div>
+                        <a href="gerar-imagem-pedido.php?id=<?php echo $pedido['id']; ?>" class="btn btn-info" target="_blank">
+                            <i class="fas fa-eye"></i> Visualizar Pedido
+                        </a>
+                    </div>
+                </div>
 
                 <div class="row">
                     <div class="col-md-6">
@@ -191,37 +215,15 @@ $itens = $stmt->fetchAll();
                             <h2 class="order-info-title">Informações do Pedido</h2>
                             <div class="order-info-item">
                                 <span class="order-info-label">Data do Pedido:</span>
-                                <span class="order-info-value">
-                                    <?php echo date('d/m/Y H:i', strtotime($pedido['data_pedido'])); ?>
-                                </span>
+                                <span class="order-info-value"><?php echo date('d/m/Y H:i', strtotime($pedido['data_criacao'])); ?></span>
                             </div>
                             <div class="order-info-item">
                                 <span class="order-info-label">Status:</span>
-                                <span class="order-status status-<?php echo $pedido['status']; ?>">
-                                    <?php
-                                    $status_labels = [
-                                        'pendente' => 'Pendente',
-                                        'aprovado' => 'Aprovado',
-                                        'enviado' => 'Enviado',
-                                        'entregue' => 'Entregue',
-                                        'cancelado' => 'Cancelado'
-                                    ];
-                                    echo $status_labels[$pedido['status']];
-                                    ?>
-                                </span>
+                                <span class="order-info-value"><?php echo ucfirst($pedido['status']); ?></span>
                             </div>
                             <div class="order-info-item">
                                 <span class="order-info-label">Forma de Pagamento:</span>
-                                <span class="order-info-value">
-                                    <?php
-                                    $payment_labels = [
-                                        'cartao' => 'Cartão de Crédito',
-                                        'boleto' => 'Boleto Bancário',
-                                        'pix' => 'PIX'
-                                    ];
-                                    echo $payment_labels[$pedido['forma_pagamento']];
-                                    ?>
-                                </span>
+                                <span class="order-info-value"><?php echo ucfirst($pedido['metodo_pagamento']); ?></span>
                             </div>
                         </div>
                     </div>
@@ -230,12 +232,20 @@ $itens = $stmt->fetchAll();
                         <div class="order-info-card">
                             <h2 class="order-info-title">Endereço de Entrega</h2>
                             <div class="order-info-item">
-                                <span class="order-info-value">
-                                    <?php echo htmlspecialchars($pedido['endereco']); ?><br>
-                                    <?php echo htmlspecialchars($pedido['cidade']); ?> - 
-                                    <?php echo htmlspecialchars($pedido['estado']); ?><br>
-                                    CEP: <?php echo htmlspecialchars($pedido['cep']); ?>
-                                </span>
+                                <span class="order-info-label">Endereço:</span>
+                                <span class="order-info-value"><?php echo htmlspecialchars($pedido['endereco_entrega'] ?? 'Não informado'); ?></span>
+                            </div>
+                            <div class="order-info-item">
+                                <span class="order-info-label">Cidade:</span>
+                                <span class="order-info-value"><?php echo htmlspecialchars($pedido['cidade_entrega'] ?? 'Não informado'); ?></span>
+                            </div>
+                            <div class="order-info-item">
+                                <span class="order-info-label">Estado:</span>
+                                <span class="order-info-value"><?php echo htmlspecialchars($pedido['estado_entrega'] ?? 'Não informado'); ?></span>
+                            </div>
+                            <div class="order-info-item">
+                                <span class="order-info-label">CEP:</span>
+                                <span class="order-info-value"><?php echo htmlspecialchars($pedido['cep_entrega'] ?? 'Não informado'); ?></span>
                             </div>
                         </div>
                     </div>
@@ -256,18 +266,16 @@ $itens = $stmt->fetchAll();
                             <?php foreach ($itens as $item): ?>
                                 <tr>
                                     <td>
-                                        <div style="display: flex; align-items: center;">
-                                            <img src="<?php echo $item['imagem'] ?: 'assets/img/no-image.jpg'; ?>" 
+                                        <div class="d-flex align-items-center">
+                                            <img src="<?php echo get_imagem_produto_segura($item['imagem']); ?>" 
                                                  class="order-item-image me-3" 
                                                  alt="<?php echo htmlspecialchars($item['produto_nome']); ?>">
                                             <span><?php echo htmlspecialchars($item['produto_nome']); ?></span>
                                         </div>
                                     </td>
-                                    <td>R$ <?php echo number_format($item['preco_unitario'], 2, ',', '.'); ?></td>
+                                    <td>Kz <?php echo number_format($item['preco'], 2, ',', '.'); ?></td>
                                     <td><?php echo $item['quantidade']; ?></td>
-                                    <td>
-                                        R$ <?php echo number_format($item['preco_unitario'] * $item['quantidade'], 2, ',', '.'); ?>
-                                    </td>
+                                    <td>Kz <?php echo number_format($item['subtotal_item'], 2, ',', '.'); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -276,9 +284,7 @@ $itens = $stmt->fetchAll();
                     <div class="order-summary">
                         <div class="order-summary-item">
                             <span class="order-summary-label">Subtotal:</span>
-                            <span class="order-summary-value">
-                                R$ <?php echo number_format($pedido['total'], 2, ',', '.'); ?>
-                            </span>
+                            <span class="order-summary-value">Kz <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
                         </div>
                         <div class="order-summary-item">
                             <span class="order-summary-label">Frete:</span>
@@ -286,7 +292,7 @@ $itens = $stmt->fetchAll();
                         </div>
                         <div class="order-summary-item order-summary-total">
                             <span>Total:</span>
-                            <span>R$ <?php echo number_format($pedido['total'], 2, ',', '.'); ?></span>
+                            <span class="order-summary-value" style="color: #0071e3;">Kz <?php echo number_format($pedido['valor_total'], 2, ',', '.'); ?></span>
                         </div>
                     </div>
                 </div>

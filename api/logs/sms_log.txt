@@ -1,0 +1,18 @@
+2025-06-24 01:56:14 | +244937969636 | SUCCESS (SIMULATED) | 🏪 UNITEC Store
+💰 Valor: Kz 2.349.990,90
+📋 Ref: MCX202506240156060DEFA8
+🛒 Pedido: #1750722939
+✅ Confirme o pagamento no Multicaixa Express
+📞 Suporte: (+244) 937 960 963
+2025-06-24 02:40:44 | +244937969636 | SUCCESS (SIMULATED) | 🏪 UNITEC Store
+💰 Valor: Kz 2.349.990,90
+📋 Ref: MCX202506240240233690EE
+🛒 Pedido: #1750725568
+✅ Confirme o pagamento no Multicaixa Express
+📞 Suporte: (+244) 937 960 963
+2025-06-24 02:47:17 | +244937969636 | SUCCESS (SIMULATED) | 🏪 UNITEC Store
+💰 Valor: Kz 2.349.990,90
+📋 Ref: MCX202506240247028E47CB
+🛒 Pedido: #1750725568
+✅ Confirme o pagamento no Multicaixa Express
+📞 Suporte: (+244) 937 960 963

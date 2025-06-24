@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
 
 // Verificar se o ID do produto foi fornecido
 if (!isset($_GET['id'])) {
@@ -11,7 +12,10 @@ if (!isset($_GET['id'])) {
 $produto_id = (int)$_GET['id'];
 
 // Buscar informações do produto
-$sql = "SELECT p.*, c.nome as categoria_nome 
+$sql = "SELECT p.*, c.nome as categoria_nome,
+        (SELECT caminho_imagem FROM imagens_produtos 
+         WHERE produto_id = p.id AND imagem_principal = 1 
+         LIMIT 1) as imagem
         FROM produtos p 
         LEFT JOIN categorias c ON p.categoria_id = c.id 
         WHERE p.id = :id AND p.status = 1";
@@ -83,6 +87,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adicionar_carrinho'])
         }
     } else {
         $mensagem = "Quantidade inválida!";
+    }
+}
+
+// Função para verificar login antes de finalizar compra
+function verificarLogin() {
+    if (!isset($_SESSION['usuario_id'])) {
+        header("Location: login.php?redirect=checkout.php");
+        exit;
     }
 }
 ?>
@@ -222,14 +234,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adicionar_carrinho'])
                 <div class="row">
                     <div class="col-md-6">
                         <div class="product-gallery">
-                            <img src="<?php echo $imagens[0]['caminho_imagem'] ?? 'assets/img/no-image.jpg'; ?>" 
+                            <img src="<?php echo get_imagem_produto_segura($produto['imagem']); ?>" 
                                  class="main-image" 
                                  id="mainImage"
                                  alt="<?php echo htmlspecialchars($produto['nome']); ?>">
                             
                             <div class="thumbnail-container">
                                 <?php foreach ($imagens as $imagem): ?>
-                                    <img src="<?php echo $imagem['caminho_imagem']; ?>" 
+                                    <img src="<?php echo get_imagem_produto_segura($imagem['caminho_imagem']); ?>" 
                                          class="thumbnail" 
                                          onclick="changeImage(this.src)"
                                          alt="<?php echo htmlspecialchars($produto['nome']); ?>">
@@ -244,12 +256,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adicionar_carrinho'])
                             <div class="product-category"><?php echo htmlspecialchars($produto['categoria_nome']); ?></div>
 
                             <div class="product-price">
-                                <?php if ($produto['preco_promocional']): ?>
-                                    <span class="product-price-promo">R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
-                                    R$ <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?>
+                                <?php if (isset($produto['preco_promocional']) && $produto['preco_promocional'] > 0): ?>
+                                    <span class="product-price-promo">Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                    Kz <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?>
                                 <?php else: ?>
-                                    R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?>
+                                    Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?>
                                 <?php endif; ?>
+                            </div>
+
+                            <div class="total-price mb-3">
+                                <h4>Total a Pagar:</h4>
+                                <div id="totalPrice" class="h3 text-info">
+                                    Kz <?php echo number_format(isset($produto['preco_promocional']) && $produto['preco_promocional'] > 0 ? $produto['preco_promocional'] : $produto['preco'], 2, ',', '.'); ?>
+                                </div>
                             </div>
 
                             <div class="product-description">
@@ -278,13 +297,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adicionar_carrinho'])
                             </div>
 
                             <?php if ($produto['estoque'] > 0): ?>
-                                <form method="POST" class="add-to-cart-form">
+                                <form method="POST" class="add-to-cart-form" id="addToCartForm">
                                     <input type="number" name="quantidade" value="1" min="1" max="<?php echo $produto['estoque']; ?>" 
-                                           class="form-control quantity-input">
-                                    <button type="submit" name="adicionar_carrinho" class="btn btn-primary">
+                                           class="form-control quantity-input" id="quantidade" onchange="updateTotal()">
+                                    <button type="submit" name="adicionar_carrinho" class="btn btn-info text-white">
                                         <i class="fas fa-shopping-cart"></i> Adicionar ao Carrinho
                                     </button>
                                 </form>
+
+                                <!-- Botões de Ação -->
+                                <div class="mt-4">
+                                    <?php if (isset($_SESSION['usuario_id'])): ?>
+                                        <a href="checkout.php" class="btn btn-info btn-lg text-white w-100 mb-3">
+                                            <i class="fas fa-shopping-cart"></i> Finalizar Compra
+                                        </a>
+                                    <?php else: ?>
+                                        <a href="login.php?redirect=checkout.php" class="btn btn-info btn-lg text-white w-100 mb-3">
+                                            <i class="fas fa-sign-in-alt"></i> Fazer Login para Finalizar Compra
+                                        </a>
+                                    <?php endif; ?>
+                                    <a href="produtos.php" class="btn btn-outline-info btn-lg w-100">
+                                        <i class="fas fa-sync-alt"></i> Continuar Comprando
+                                    </a>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -300,6 +335,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adicionar_carrinho'])
         function changeImage(src) {
             document.getElementById('mainImage').src = src;
         }
+
+        function updateTotal() {
+            const quantidade = document.getElementById('quantidade').value;
+            const precoUnitario = <?php echo $produto['preco_promocional'] ? $produto['preco_promocional'] : $produto['preco']; ?>;
+            const total = quantidade * precoUnitario;
+            document.getElementById('totalPrice').textContent = 'R$ ' + total.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+
+        // Initialize total on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTotal();
+        });
     </script>
 </body>
 </html> 

@@ -82,17 +82,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 }
 
-// Buscar pedidos do usuário
-$sql = "SELECT p.*, COUNT(ip.id) as total_itens 
+// Buscar pedidos recentes do usuário
+$sql = "SELECT p.*, 
+        (SELECT COUNT(*) FROM itens_pedido WHERE pedido_id = p.id) as total_itens,
+        (SELECT SUM(quantidade) FROM itens_pedido WHERE pedido_id = p.id) as total_produtos
         FROM pedidos p 
-        LEFT JOIN itens_pedido ip ON p.id = ip.pedido_id 
         WHERE p.usuario_id = :usuario_id 
-        GROUP BY p.id 
-        ORDER BY p.data_pedido DESC";
+        ORDER BY p.data_criacao DESC 
+        LIMIT 5";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
 $stmt->execute();
-$pedidos = $stmt->fetchAll();
+$pedidos_recentes = $stmt->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -106,60 +107,133 @@ $pedidos = $stmt->fetchAll();
     <style>
         .profile-section {
             padding: 40px 0;
-            background: #f8f9fa;
-            min-height: 100vh;
+            background: #f5f5f7;
         }
-        .profile-card {
+        .profile-container {
             background: white;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 30px;
         }
         .profile-header {
-            background: var(--primary-color);
-            color: white;
-            padding: 30px;
-            border-radius: 15px 15px 0 0;
+            text-align: center;
+            margin-bottom: 30px;
         }
-        .profile-body {
-            padding: 30px;
-        }
-        .nav-pills .nav-link {
-            color: var(--primary-color);
-            border-radius: 8px;
-            margin-bottom: 10px;
-        }
-        .nav-pills .nav-link.active {
-            background-color: var(--primary-color);
-        }
-        .form-floating {
+        .profile-avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
             margin-bottom: 20px;
+            object-fit: cover;
+            border: 3px solid #0071e3;
         }
-        .form-floating input {
-            border-radius: 8px;
+        .profile-name {
+            font-size: 1.5rem;
+            color: #1d1d1f;
+            margin-bottom: 5px;
         }
-        .btn-profile {
-            padding: 12px 25px;
-            border-radius: 8px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .profile-email {
+            color: #6e6e73;
         }
-        .order-card {
-            border: 1px solid #eee;
+        .nav-tabs {
+            border-bottom: 1px solid #d2d2d7;
+            margin-bottom: 30px;
+        }
+        .nav-tabs .nav-link {
+            color: #6e6e73;
+            border: none;
+            padding: 10px 20px;
+            margin-right: 10px;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0071e3;
+            border-bottom: 2px solid #0071e3;
+            background: none;
+        }
+        .tab-content {
+            padding: 20px 0;
+        }
+        .recent-order {
+            background: #f5f5f7;
             border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            transition: all 0.3s ease;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .order-card:hover {
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        .order-info {
+            display: flex;
+            flex-direction: column;
         }
-        .status-badge {
-            padding: 5px 15px;
-            border-radius: 20px;
+        .order-number {
+            font-weight: 600;
+            color: #1d1d1f;
+            margin-bottom: 5px;
+        }
+        .order-date {
+            color: #6e6e73;
+            font-size: 0.9rem;
+        }
+        .order-status {
+            padding: 5px 10px;
+            border-radius: 15px;
             font-size: 0.9rem;
             font-weight: 500;
+        }
+        .status-pendente {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+        .status-aprovado {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status-enviado {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status-entregue {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status-cancelado {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .order-total {
+            font-weight: 600;
+            color: #1d1d1f;
+        }
+        .form-label {
+            color: #1d1d1f;
+            font-weight: 500;
+        }
+        .form-control {
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            padding: 10px 15px;
+        }
+        .form-control:focus {
+            border-color: #0071e3;
+            box-shadow: 0 0 0 2px rgba(0,113,227,0.2);
+        }
+        .btn-primary {
+            background: #0071e3;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+        }
+        .btn-primary:hover {
+            background: #0077ed;
+        }
+        .btn-outline-primary {
+            color: #0071e3;
+            border-color: #0071e3;
+        }
+        .btn-outline-primary:hover {
+            background: #0071e3;
+            color: white;
         }
     </style>
 </head>
@@ -313,43 +387,28 @@ $pedidos = $stmt->fetchAll();
                                 <!-- Pedidos -->
                                 <div class="tab-pane fade" id="pedidos">
                                     <h4 class="mb-4">Meus Pedidos</h4>
-                                    <?php if (empty($pedidos)): ?>
+                                    <?php if (empty($pedidos_recentes)): ?>
                                         <div class="text-center py-5">
                                             <i class="fas fa-shopping-bag fa-3x text-muted mb-3"></i>
                                             <p class="text-muted">Você ainda não fez nenhum pedido.</p>
                                             <a href="produtos.php" class="btn btn-primary">Ver Produtos</a>
                                         </div>
                                     <?php else: ?>
-                                        <?php foreach ($pedidos as $pedido): ?>
-                                            <div class="order-card">
-                                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                                    <div>
-                                                        <h6 class="mb-1">Pedido #<?php echo $pedido['id']; ?></h6>
-                                                        <small class="text-muted">
-                                                            <?php echo date('d/m/Y H:i', strtotime($pedido['data_pedido'])); ?>
-                                                        </small>
-                                                    </div>
-                                                    <span class="status-badge bg-<?php 
-                                                        echo $pedido['status'] == 'pendente' ? 'warning' : 
-                                                            ($pedido['status'] == 'aprovado' ? 'success' : 
-                                                            ($pedido['status'] == 'cancelado' ? 'danger' : 'info')); 
-                                                    ?>">
-                                                        <?php echo ucfirst($pedido['status']); ?>
-                                                    </span>
+                                        <?php foreach ($pedidos_recentes as $pedido): ?>
+                                            <div class="recent-order">
+                                                <div class="order-info">
+                                                    <span class="order-number">Pedido #<?php echo str_pad($pedido['id'], 8, '0', STR_PAD_LEFT); ?></span>
+                                                    <span class="order-date"><?php echo date('d/m/Y', strtotime($pedido['data_criacao'])); ?></span>
                                                 </div>
-                                                <div class="d-flex justify-content-between align-items-center">
-                                                    <div>
-                                                        <p class="mb-0">
-                                                            <strong>Total:</strong> R$ <?php echo number_format($pedido['total'], 2, ',', '.'); ?>
-                                                        </p>
-                                                        <small class="text-muted">
-                                                            <?php echo $pedido['total_itens']; ?> item(ns)
-                                                        </small>
-                                                    </div>
-                                                    <a href="detalhes-pedido.php?id=<?php echo $pedido['id']; ?>" class="btn btn-outline-primary btn-sm">
-                                                        Ver Detalhes
-                                                    </a>
+                                                <div class="order-status status-<?php echo $pedido['status']; ?>">
+                                                    <?php echo ucfirst($pedido['status']); ?>
                                                 </div>
+                                                <div class="order-total">
+                                                    Kz <?php echo number_format($pedido['valor_total'], 2, ',', '.'); ?>
+                                                </div>
+                                                <a href="pedido-detalhes.php?id=<?php echo $pedido['id']; ?>" class="btn btn-sm btn-outline-primary">
+                                                    Ver Detalhes
+                                                </a>
                                             </div>
                                         <?php endforeach; ?>
                                     <?php endif; ?>

@@ -1,6 +1,10 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
+
+// Buscar categorias ativas
+$categorias = get_categorias_ativas();
 
 // Parâmetros de filtro e paginação
 $categoria_id = isset($_GET['categoria']) ? (int)$_GET['categoria'] : null;
@@ -9,67 +13,80 @@ $ordem = isset($_GET['ordem']) ? $_GET['ordem'] : 'recente';
 $pagina = isset($_GET['pagina']) ? (int)$_GET['pagina'] : 1;
 $itens_por_pagina = 12;
 
-// Construir a query base
-$sql = "SELECT p.*, c.nome as categoria_nome, 
-        (SELECT caminho_imagem FROM imagens_produtos WHERE produto_id = p.id AND imagem_principal = 1 LIMIT 1) as imagem
-        FROM produtos p 
-        LEFT JOIN categorias c ON p.categoria_id = c.id 
-        WHERE p.status = 1";
+// Construir condições WHERE
+$where_conditions = ["p.status = 1"];
+$busca_conditions = []; // Inicializar variável
 
-$params = [];
-
-// Adicionar filtros
 if ($categoria_id) {
-    $sql .= " AND p.categoria_id = :categoria_id";
-    $params[':categoria_id'] = $categoria_id;
+    $where_conditions[] = "p.categoria_id = $categoria_id";
 }
 
 if ($busca) {
-    $sql .= " AND (p.nome LIKE :busca OR p.descricao LIKE :busca)";
-    $params[':busca'] = "%$busca%";
+    $termos = preg_split('/\s+/', $busca);
+    foreach ($termos as $termo) {
+        $termo = trim($termo);
+        if (strlen($termo) >= 2) {
+            $termo_escaped = $conn->quote("%$termo%");
+            $busca_conditions[] = "(LOWER(p.nome) LIKE LOWER($termo_escaped) OR LOWER(p.descricao) LIKE LOWER($termo_escaped))";
+        }
+    }
+    if (!empty($busca_conditions)) {
+        $where_conditions[] = '(' . implode(' OR ', $busca_conditions) . ')';
+    }
 }
+
+$where_sql = implode(' AND ', $where_conditions);
 
 // Ordenação
 switch ($ordem) {
     case 'preco_menor':
-        $sql .= " ORDER BY p.preco ASC";
+        $order_sql = "ORDER BY p.preco ASC";
         break;
     case 'preco_maior':
-        $sql .= " ORDER BY p.preco DESC";
+        $order_sql = "ORDER BY p.preco DESC";
         break;
     case 'nome':
-        $sql .= " ORDER BY p.nome ASC";
+        $order_sql = "ORDER BY p.nome ASC";
         break;
-    default: // recente
-        $sql .= " ORDER BY p.data_criacao DESC";
+    default:
+        $order_sql = "ORDER BY p.data_criacao DESC";
 }
 
-// Buscar categorias para o filtro
-$stmt_categorias = $conn->query("SELECT * FROM categorias WHERE status = 1 ORDER BY nome");
-$categorias = $stmt_categorias->fetchAll();
+// Paginação
+$offset = ($pagina - 1) * $itens_por_pagina;
 
-// Calcular total de produtos para paginação
-$stmt_total = $conn->prepare(str_replace("p.*, c.nome as categoria_nome", "COUNT(*)", $sql));
-foreach ($params as $key => $value) {
-    $stmt_total->bindValue($key, $value);
-}
-$stmt_total->execute();
+// Query principal
+$sql = "SELECT DISTINCT p.*, c.nome as categoria_nome, 
+        (SELECT caminho_imagem FROM imagens_produtos WHERE produto_id = p.id AND imagem_principal = 1 LIMIT 1) as imagem
+        FROM produtos p 
+        LEFT JOIN categorias c ON p.categoria_id = c.id 
+        WHERE $where_sql 
+        $order_sql 
+        LIMIT $offset, $itens_por_pagina";
+
+// Query de contagem
+$sql_count = "SELECT COUNT(*) 
+              FROM produtos p 
+              LEFT JOIN categorias c ON p.categoria_id = c.id 
+              WHERE $where_sql";
+
+// Buscar total de produtos
+$stmt_total = $conn->query($sql_count);
 $total_produtos = $stmt_total->fetchColumn();
 $total_paginas = ceil($total_produtos / $itens_por_pagina);
 
-// Adicionar paginação
-$offset = ($pagina - 1) * $itens_por_pagina;
-$sql .= " LIMIT :offset, :limit";
-$params[':offset'] = (int)$offset;
-$params[':limit'] = (int)$itens_por_pagina;
-
 // Buscar produtos
-$stmt = $conn->prepare($sql);
-foreach ($params as $key => $value) {
-    $stmt->bindValue($key, $value, PDO::PARAM_INT);
-}
-$stmt->execute();
+$stmt = $conn->query($sql);
 $produtos = $stmt->fetchAll();
+
+// Debug temporário para identificar o problema
+error_log("=== DEBUG BUSCA ===");
+error_log("Busca: '$busca'");
+error_log("Termos: " . print_r($termos ?? [], true));
+error_log("Busca termos: " . print_r($busca_conditions, true));
+error_log("SQL: $sql");
+error_log("SQL COUNT: $sql_count");
+error_log("==================");
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -83,24 +100,27 @@ $produtos = $stmt->fetchAll();
     <style>
         .products-section {
             padding: 40px 0;
-            background: #f8f9fa;
+            background-color: var(--body-bg);
         }
         .filter-sidebar {
-            background: white;
+            background: var(--body-bg);
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #eee;
         }
         .product-card {
-            background: white;
+            background: var(--body-bg);
             border-radius: 10px;
             overflow: hidden;
             transition: transform 0.3s ease;
             height: 100%;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #eee;
         }
         .product-card:hover {
             transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
         .product-image {
             height: 200px;
@@ -143,62 +163,148 @@ $produtos = $stmt->fetchAll();
     </style>
 </head>
 <body>
-    <?php include 'includes/header.php'; ?>
-
+    <?php include 'includes/header.php'; ?> 
     <div class="products-section">
         <div class="container">
+            <!-- Produtos em Destaque -->
+            <?php
+            // Buscar produtos em destaque
+            $sql_destaque = "SELECT p.*, c.nome as categoria_nome,
+                            (SELECT caminho_imagem FROM imagens_produtos WHERE produto_id = p.id AND imagem_principal = 1 LIMIT 1) as imagem
+                            FROM produtos p 
+                            LEFT JOIN categorias c ON p.categoria_id = c.id 
+                            WHERE p.status = 1 AND p.destaque = 1 
+                            ORDER BY p.data_criacao DESC 
+                            LIMIT 4";
+            $stmt_destaque = $conn->query($sql_destaque);
+            $produtos_destaque = $stmt_destaque->fetchAll();
+
+            if (!empty($produtos_destaque)): ?>
+                <div class="mb-5">
+                    <h2 class="text-center mb-4">Produtos em Destaque</h2>
+                    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
+                        <?php foreach ($produtos_destaque as $produto): ?>
+                            <div class="col">
+                                <div class="product-card h-100">
+                                    <a href="produto.php?id=<?php echo $produto['id']; ?>" class="text-decoration-none">
+                                        <div class="position-relative">
+                                            <img src="<?php echo get_imagem_produto_segura($produto['imagem']); ?>" 
+                                                 class="product-image" alt="<?php echo htmlspecialchars($produto['nome']); ?>">
+                                            <span class="badge bg-danger position-absolute top-0 end-0 m-2">Destaque</span>
+                                        </div>
+                                        <div class="product-info">
+                                            <h6 class="mb-2 text-dark"><?php echo htmlspecialchars($produto['nome']); ?></h6>
+                                            <p class="mb-2 text-muted small"><?php echo htmlspecialchars($produto['categoria_nome']); ?></p>
+                                            <?php if ($produto['preco_promocional']): ?>
+                                                <span class="product-price-promo">Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                                <span class="product-price">Kz <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?></span>
+                                            <?php else: ?>
+                                                <span class="product-price">Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </a>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <div class="row">
                 <!-- Filtros -->
                 <div class="col-lg-3 mb-4">
                     <div class="filter-sidebar">
                         <h5 class="mb-3">Filtros</h5>
                         
-                        <!-- Busca -->
-                        <form action="" method="GET" class="mb-4">
-                            <div class="search-box">
-                                <input type="text" class="form-control" name="busca" 
-                                       placeholder="Buscar produtos..." value="<?php echo htmlspecialchars($busca); ?>">
-                                <i class="fas fa-search"></i>
-                            </div>
-                            
-                            <!-- Categorias -->
-                            <div class="mt-3">
-                                <label class="form-label">Categorias</label>
-                                <div class="list-group">
-                                    <a href="?<?php echo http_build_query(array_merge($_GET, ['categoria' => null])); ?>" 
-                                       class="list-group-item list-group-item-action <?php echo !$categoria_id ? 'active' : ''; ?>">
-                                        Todas as categorias
+                        <!-- Categorias -->
+                        <div class="mb-4">
+                            <label class="form-label">Categorias</label>
+                            <div class="list-group">
+                                <a href="produtos.php<?php echo $busca ? '?busca=' . urlencode($busca) : ''; ?>" 
+                                   class="list-group-item list-group-item-action <?php echo !$categoria_id ? 'active' : ''; ?>">
+                                    Todas as Categorias
+                                </a>
+                                <?php foreach ($categorias as $cat): ?>
+                                    <a href="produtos.php?categoria=<?php echo $cat['id']; ?><?php echo $busca ? '&busca=' . urlencode($busca) : ''; ?>" 
+                                       class="list-group-item list-group-item-action <?php echo $categoria_id == $cat['id'] ? 'active' : ''; ?>">
+                                        <?php echo htmlspecialchars($cat['nome']); ?>
                                     </a>
-                                    <?php foreach ($categorias as $cat): ?>
-                                        <a href="?<?php echo http_build_query(array_merge($_GET, ['categoria' => $cat['id']])); ?>" 
-                                           class="list-group-item list-group-item-action <?php echo $categoria_id == $cat['id'] ? 'active' : ''; ?>">
-                                            <?php echo htmlspecialchars($cat['nome']); ?>
-                                        </a>
-                                    <?php endforeach; ?>
-                                </div>
+                                <?php endforeach; ?>
                             </div>
+                        </div>
 
-                            <!-- Ordenação -->
-                            <div class="mt-3">
-                                <label class="form-label">Ordenar por</label>
+                        <!-- Ordenação -->
+                        <div class="mb-4">
+                            <label class="form-label">Ordenar por</label>
+                            <form id="filtro-ordem" method="GET" class="mb-0">
+                                <?php if ($categoria_id): ?>
+                                    <input type="hidden" name="categoria" value="<?php echo $categoria_id; ?>">
+                                <?php endif; ?>
+                                <?php if ($busca): ?>
+                                    <input type="hidden" name="busca" value="<?php echo htmlspecialchars($busca); ?>">
+                                <?php endif; ?>
                                 <select class="form-select" name="ordem" onchange="this.form.submit()">
                                     <option value="recente" <?php echo $ordem == 'recente' ? 'selected' : ''; ?>>Mais recentes</option>
                                     <option value="preco_menor" <?php echo $ordem == 'preco_menor' ? 'selected' : ''; ?>>Menor preço</option>
                                     <option value="preco_maior" <?php echo $ordem == 'preco_maior' ? 'selected' : ''; ?>>Maior preço</option>
                                     <option value="nome" <?php echo $ordem == 'nome' ? 'selected' : ''; ?>>Nome A-Z</option>
                                 </select>
+                            </form>
+                        </div>
+
+                        <!-- Limpar Filtros -->
+                        <?php if ($categoria_id || $busca || $ordem != 'recente'): ?>
+                            <div class="mt-4">
+                                <a href="produtos.php" class="btn btn-outline-secondary w-100">
+                                    <i class="fas fa-times me-2"></i>Limpar Filtros
+                                </a>
                             </div>
-                        </form>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Lista de Produtos -->
                 <div class="col-lg-9">
+                    <?php if ($busca || $categoria_id): ?>
+                        <div class="mb-4">
+                            <h4>
+                                <?php if ($busca): ?>
+                                    Resultados para "<?php echo htmlspecialchars($busca); ?>"
+                                <?php endif; ?>
+                                <?php if ($categoria_id): ?>
+                                    <?php 
+                                    $categoria_atual = array_filter($categorias, function($cat) use ($categoria_id) {
+                                        return $cat['id'] == $categoria_id;
+                                    });
+                                    $categoria_atual = reset($categoria_atual);
+                                    if ($categoria_atual) {
+                                        echo " em " . htmlspecialchars($categoria_atual['nome']);
+                                    }
+                                    ?>
+                                <?php endif; ?>
+                                <small class="text-muted">(<?php echo $total_produtos; ?> produtos)</small>
+                            </h4>
+                        </div>
+                    <?php endif; ?>
+
                     <?php if (empty($produtos)): ?>
                         <div class="text-center py-5">
                             <i class="fas fa-box-open fa-3x text-muted mb-3"></i>
                             <h4>Nenhum produto encontrado</h4>
-                            <p class="text-muted">Tente ajustar seus filtros ou buscar por outro termo.</p>
+                            <p class="text-muted">
+                                <?php if ($busca): ?>
+                                    Não encontramos produtos para "<?php echo htmlspecialchars($busca); ?>".
+                                <?php elseif ($categoria_id): ?>
+                                    Não há produtos nesta categoria no momento.
+                                <?php else: ?>
+                                    Não há produtos disponíveis no momento.
+                                <?php endif; ?>
+                            </p>
+                            <?php if ($busca || $categoria_id): ?>
+                                <a href="produtos.php" class="btn btn-primary mt-3">
+                                    <i class="fas fa-sync-alt me-2"></i>Ver todos os produtos
+                                </a>
+                            <?php endif; ?>
                         </div>
                     <?php else: ?>
                         <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
@@ -206,22 +312,34 @@ $produtos = $stmt->fetchAll();
                                 <div class="col">
                                     <div class="product-card">
                                         <a href="produto.php?id=<?php echo $produto['id']; ?>" class="text-decoration-none">
-                                            <img src="<?php echo $produto['imagem'] ?: 'assets/img/no-image.jpg'; ?>" 
+                                            <img src="<?php echo get_imagem_produto_segura($produto['imagem']); ?>" 
                                                  class="product-image" alt="<?php echo htmlspecialchars($produto['nome']); ?>">
                                             <div class="product-info">
                                                 <h6 class="mb-2 text-dark"><?php echo htmlspecialchars($produto['nome']); ?></h6>
                                                 <p class="mb-2 text-muted small"><?php echo htmlspecialchars($produto['categoria_nome']); ?></p>
                                                 <?php if ($produto['preco_promocional']): ?>
-                                                    <span class="product-price-promo">R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
-                                                    <span class="product-price">R$ <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?></span>
+                                                    <span class="product-price-promo">Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                                    <span class="product-price">Kz <?php echo number_format($produto['preco_promocional'], 2, ',', '.'); ?></span>
                                                 <?php else: ?>
-                                                    <span class="product-price">R$ <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
+                                                    <span class="product-price">Kz <?php echo number_format($produto['preco'], 2, ',', '.'); ?></span>
                                                 <?php endif; ?>
                                             </div>
                                         </a>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
+                        </div>
+
+                        <!-- Botões de Ação -->
+                        <div class="row mt-4 mb-5">
+                            <div class="col-12 text-center">
+                                <a href="carrinho.php" class="btn btn-primary btn-lg me-3">
+                                    <i class="fas fa-shopping-cart"></i> Finalizar Compra
+                                </a>
+                                <a href="produtos.php" class="btn btn-outline-primary btn-lg">
+                                    <i class="fas fa-sync-alt"></i> Continuar Comprando
+                                </a>
+                            </div>
                         </div>
 
                         <!-- Paginação -->

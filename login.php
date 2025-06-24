@@ -8,6 +8,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email']);
     $senha = $_POST['senha'];
 
+    // Debug - Log dos dados recebidos
+    error_log("Login - Tentativa de login para email: " . $email);
+
     if (empty($email) || empty($senha)) {
         $erro = "Por favor, preencha todos os campos.";
     } else {
@@ -22,6 +25,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             
             if (password_verify($senha, $usuario['senha'])) {
                 error_log("Login - Senha verificada com sucesso");
+                
                 // Limpar sessão anterior
                 session_unset();
                 session_destroy();
@@ -30,16 +34,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 // Definir novas variáveis de sessão
                 $_SESSION['usuario_id'] = $usuario['id'];
                 $_SESSION['usuario_nome'] = $usuario['nome'];
-                $_SESSION['tipo'] = $usuario['tipo'];
-                $_SESSION['nome'] = $usuario['nome'];
+                $_SESSION['usuario_tipo'] = $usuario['tipo']; // Corrigido: usando usuario_tipo em vez de tipo
+                $_SESSION['usuario_email'] = $usuario['email'];
 
-                // Debug - remover em produção
-                error_log("Login - Dados do usuário: " . print_r($usuario, true));
+                // Debug - Log das variáveis de sessão
                 error_log("Login - Sessão após login: " . print_r($_SESSION, true));
-                error_log("Login - Tipo de usuário (raw): '" . $usuario['tipo'] . "'");
-                error_log("Login - Tipo de usuário (trimmed): '" . trim($usuario['tipo']) . "'");
-                error_log("Login - Tipo de usuário (lowercase): '" . strtolower(trim($usuario['tipo'])) . "'");
-                error_log("Login - Comparação tipo === 'admin': " . (strtolower(trim($usuario['tipo'])) === 'admin' ? 'true' : 'false'));
+                error_log("Login - Tipo de usuário: " . $usuario['tipo']);
 
                 // Redirecionar para a página apropriada
                 if (strtolower(trim($usuario['tipo'])) === 'admin') {
@@ -47,14 +47,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     header("Location: admin/index.php");
                     exit();
                 } else {
-                    error_log("Login - Redirecionando para index.php");
-                    header("Location: index.php");
+                    error_log("Login - Redirecionando para página apropriada");
+                    if (isset($_GET['redirect'])) {
+                        $redirect = urldecode($_GET['redirect']);
+                        header("Location: " . $redirect);
+                    } else {
+                        header("Location: index.php");
+                    }
                     exit();
                 }
             } else {
+                error_log("Login - Senha incorreta");
                 $erro = "Senha incorreta.";
             }
         } else {
+            error_log("Login - Email não encontrado");
             $erro = "Email não encontrado.";
         }
     }

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
 
 // Verificar se o usuário está logado
 if (!isset($_SESSION['usuario_id'])) {
@@ -9,7 +10,12 @@ if (!isset($_SESSION['usuario_id'])) {
 }
 
 // Buscar pedidos do usuário
-$sql = "SELECT * FROM pedidos WHERE usuario_id = :usuario_id ORDER BY data_pedido DESC";
+$sql = "SELECT p.*, 
+        (SELECT COUNT(*) FROM itens_pedido WHERE pedido_id = p.id) as total_itens,
+        (SELECT SUM(quantidade) FROM itens_pedido WHERE pedido_id = p.id) as total_produtos
+        FROM pedidos p 
+        WHERE p.usuario_id = :usuario_id 
+        ORDER BY p.data_criacao DESC";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
 $stmt->execute();
@@ -175,7 +181,7 @@ $pedidos = $stmt->fetchAll();
                             <div class="order-header">
                                 <div>
                                     <span class="order-number">Pedido #<?php echo str_pad($pedido['id'], 8, '0', STR_PAD_LEFT); ?></span>
-                                    <span class="order-date ms-3"><?php echo date('d/m/Y H:i', strtotime($pedido['data_pedido'])); ?></span>
+                                    <span class="order-date ms-3"><?php echo date('d/m/Y H:i', strtotime($pedido['data_criacao'])); ?></span>
                                 </div>
                                 <span class="order-status status-<?php echo $pedido['status']; ?>">
                                     <?php
@@ -208,14 +214,14 @@ $pedidos = $stmt->fetchAll();
                                 <div class="order-items">
                                     <?php foreach ($itens as $item): ?>
                                         <div class="order-item">
-                                            <img src="<?php echo $item['imagem'] ?: 'assets/img/no-image.jpg'; ?>" 
+                                            <img src="<?php echo get_imagem_produto_segura($item['imagem']); ?>" 
                                                  class="order-item-image" 
                                                  alt="<?php echo htmlspecialchars($item['produto_nome']); ?>">
                                             
                                             <div class="order-item-info">
                                                 <h4 class="order-item-title"><?php echo htmlspecialchars($item['produto_nome']); ?></h4>
                                                 <div class="order-item-price">
-                                                    R$ <?php echo number_format($item['preco_unitario'], 2, ',', '.'); ?>
+                                                    Kz <?php echo number_format($item['preco'], 2, ',', '.'); ?>
                                                     x <?php echo $item['quantidade']; ?>
                                                 </div>
                                             </div>
@@ -225,7 +231,7 @@ $pedidos = $stmt->fetchAll();
 
                                 <div class="order-footer">
                                     <div class="order-total">
-                                        Total: R$ <?php echo number_format($pedido['total'], 2, ',', '.'); ?>
+                                        Total: Kz <?php echo number_format($pedido['valor_total'], 2, ',', '.'); ?>
                                     </div>
                                     <div class="order-actions">
                                         <a href="pedido-detalhes.php?id=<?php echo $pedido['id']; ?>" class="btn btn-outline-primary">

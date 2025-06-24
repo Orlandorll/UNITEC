@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
 
 // Verificar se o usuário está logado
 if (!isset($_SESSION['usuario_id'])) {
@@ -177,7 +178,7 @@ foreach ($itens as $item) {
                         <div class="cart-container">
                             <?php foreach ($itens as $item): ?>
                                 <div class="cart-item">
-                                    <img src="<?php echo $item['imagem'] ?: 'assets/img/no-image.jpg'; ?>" 
+                                    <img src="<?php echo get_imagem_produto_segura($item['imagem']); ?>" 
                                          class="cart-item-image" 
                                          alt="<?php echo htmlspecialchars($item['nome']); ?>">
                                     
@@ -218,7 +219,7 @@ foreach ($itens as $item) {
                             
                             <div class="cart-summary-row">
                                 <span>Subtotal (<?php echo $total_itens; ?> itens)</span>
-                                <span>R$ <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
+                                <span>Kz <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
                             </div>
                             
                             <div class="cart-summary-row">
@@ -229,7 +230,7 @@ foreach ($itens as $item) {
                             <div class="cart-summary-total">
                                 <div class="cart-summary-row">
                                     <span>Total</span>
-                                    <span>R$ <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
+                                    <span>Kz <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
                                 </div>
                             </div>
 

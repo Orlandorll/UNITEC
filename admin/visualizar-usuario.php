@@ -3,7 +3,7 @@ session_start();
 require_once "../config/database.php";
 
 // Verificar se o usuário está logado e é administrador
-if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
+if (!isset($_SESSION['usuario_id']) || $_SESSION['usuario_tipo'] !== 'admin') {
     header("Location: ../login.php");
     exit;
 }
@@ -177,7 +177,7 @@ $pedidos = $stmt->fetchAll();
                                         <tr>
                                             <td>#<?php echo str_pad($pedido['id'], 6, '0', STR_PAD_LEFT); ?></td>
                                             <td><?php echo date('d/m/Y H:i', strtotime($pedido['data_pedido'])); ?></td>
-                                            <td>R$ <?php echo number_format($pedido['total'], 2, ',', '.'); ?></td>
+                                            <td>Kz <?php echo number_format($pedido['total'], 2, ',', '.'); ?></td>
                                             <td><?php echo $pedido['total_itens']; ?> itens</td>
                                             <td>
                                                 <span class="badge status-badge status-<?php echo $pedido['status']; ?>">

@@ -3,13 +3,25 @@ session_start();
 require_once "../config/database.php";
 
 // Verificar se o usuário está logado e é administrador
-if (!isset($_SESSION['usuario_id']) || $_SESSION['tipo'] !== 'admin') {
+if (!isset($_SESSION['usuario_id']) || $_SESSION['usuario_tipo'] !== 'admin') {
     header("Location: ../login.php");
     exit;
 }
 
-// Processar ações
+// Verificar se a coluna status existe, se não, criar
+try {
+    $check_column = $conn->query("SHOW COLUMNS FROM usuarios LIKE 'status'");
+    if ($check_column->rowCount() == 0) {
+        $conn->exec("ALTER TABLE usuarios ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ativo'");
+    }
+} catch (PDOException $e) {
+    $erro = "Erro ao verificar/criar coluna status: " . $e->getMessage();
+}
+
 $mensagem = '';
+$erro = '';
+
+// Processar ações
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['acao'])) {
         switch ($_POST['acao']) {
@@ -23,25 +35,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $usuario = $check_stmt->fetch();
                 
                 if ($usuario['tipo'] !== 'admin') {
-                    $mensagem = "Usuário desativado com sucesso!";
+                    $sql = "UPDATE usuarios SET status = 'inativo' WHERE id = :id";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bindParam(':id', $usuario_id);
+                    if ($stmt->execute()) {
+                        $mensagem = "Usuário desativado com sucesso!";
+                    } else {
+                        $erro = "Erro ao desativar usuário.";
+                    }
                 } else {
-                    $mensagem = "Não é possível desativar um administrador!";
+                    $erro = "Não é possível desativar um administrador!";
                 }
                 break;
 
             case 'ativar':
                 $usuario_id = (int)$_POST['usuario_id'];
-                $mensagem = "Usuário ativado com sucesso!";
+                $sql = "UPDATE usuarios SET status = 'ativo' WHERE id = :id";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':id', $usuario_id);
+                if ($stmt->execute()) {
+                    $mensagem = "Usuário ativado com sucesso!";
+                } else {
+                    $erro = "Erro ao ativar usuário.";
+                }
                 break;
         }
     }
 }
 
 // Buscar todos os usuários
-$sql = "SELECT id, nome, email, tipo, data_criacao FROM usuarios ORDER BY data_criacao DESC";
+$sql = "SELECT id, nome, email, tipo, status, data_criacao FROM usuarios ORDER BY data_criacao DESC";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
 $usuarios = $stmt->fetchAll();
+
+// Debug - Mostrar status dos usuários
+echo "<!-- Debug: Status dos usuários -->\n";
+foreach ($usuarios as $usuario) {
+    echo "<!-- Usuário ID: " . $usuario['id'] . " - Status: " . $usuario['status'] . " -->\n";
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -108,16 +140,9 @@ $usuarios = $stmt->fetchAll();
             padding: 5px 10px;
             border-radius: 15px;
             font-size: 0.9rem;
-            font-weight: 500;
         }
-        .status-ativo {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-        .status-inativo {
-            background: #ffebee;
-            color: #c62828;
-        }
+        .status-ativo { background: #d4edda; color: #155724; }
+        .status-inativo { background: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
@@ -137,73 +162,60 @@ $usuarios = $stmt->fetchAll();
                     <div class="alert alert-success"><?php echo $mensagem; ?></div>
                 <?php endif; ?>
 
-                <?php if (empty($usuarios)): ?>
-                    <div class="alert alert-info">
-                        Nenhum usuário cadastrado.
-                    </div>
-                <?php else: ?>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th>E-mail</th>
-                                    <th>Tipo</th>
-                                    <th>Data de Cadastro</th>
-                                    <th>Status</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($usuarios as $usuario): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($usuario['nome']); ?></td>
-                                        <td><?php echo htmlspecialchars($usuario['email']); ?></td>
-                                        <td>
-                                            <?php
-                                            $tipo_labels = [
-                                                'admin' => 'Administrador',
-                                                'cliente' => 'Cliente'
-                                            ];
-                                            echo $tipo_labels[$usuario['tipo']] ?? 'Cliente';
-                                            ?>
-                                        </td>
-                                        <td><?php echo date('d/m/Y H:i', strtotime($usuario['data_criacao'])); ?></td>
-                                        <td>
-                                            <span class="badge status-badge status-<?php echo $usuario['tipo'] === 'admin' ? 'ativo' : 'inativo'; ?>">
-                                                <?php echo $usuario['tipo'] === 'admin' ? 'Ativo' : 'Inativo'; ?>
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div class="btn-group">
-                                                <a href="editar-usuario.php?id=<?php echo $usuario['id']; ?>" class="btn btn-sm btn-outline-primary">
-                                                    <i class="fas fa-edit"></i>
-                                                </a>
-                                                <?php if ($usuario['tipo'] !== 'admin'): ?>
-                                                    <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="acao" value="desativar">
-                                                        <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Tem certeza que deseja desativar este usuário?')">
-                                                            <i class="fas fa-ban"></i>
-                                                        </button>
-                                                    </form>
-                                                <?php else: ?>
-                                                    <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="acao" value="ativar">
-                                                        <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-success">
-                                                            <i class="fas fa-check"></i>
-                                                        </button>
-                                                    </form>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                <?php if ($erro): ?>
+                    <div class="alert alert-danger"><?php echo $erro; ?></div>
                 <?php endif; ?>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Email</th>
+                                <th>Tipo</th>
+                                <th>Status</th>
+                                <th>Data de Cadastro</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($usuarios as $usuario): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($usuario['nome']); ?></td>
+                                    <td><?php echo htmlspecialchars($usuario['email']); ?></td>
+                                    <td><?php echo ucfirst($usuario['tipo']); ?></td>
+                                    <td>
+                                        <span class="status-badge status-<?php echo strtolower($usuario['status']); ?>">
+                                            <?php echo ucfirst($usuario['status']); ?>
+                                        </span>
+                                    </td>
+                                    <td><?php echo date('d/m/Y H:i', strtotime($usuario['data_criacao'])); ?></td>
+                                    <td>
+                                        <?php if ($usuario['tipo'] !== 'admin'): ?>
+                                            <?php if (strtolower($usuario['status']) === 'ativo'): ?>
+                                                <form method="POST" class="d-inline" onsubmit="return confirm('Tem certeza que deseja desativar este usuário?');">
+                                                    <input type="hidden" name="acao" value="desativar">
+                                                    <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
+                                                    <button type="submit" class="btn btn-sm btn-warning">
+                                                        <i class="fas fa-ban"></i> Desativar
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <form method="POST" class="d-inline" onsubmit="return confirm('Tem certeza que deseja ativar este usuário?');">
+                                                    <input type="hidden" name="acao" value="ativar">
+                                                    <input type="hidden" name="usuario_id" value="<?php echo $usuario['id']; ?>">
+                                                    <button type="submit" class="btn btn-sm btn-success">
+                                                        <i class="fas fa-check"></i> Ativar
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

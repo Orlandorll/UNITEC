@@ -31,6 +31,7 @@ CREATE TABLE categorias (
     icone VARCHAR(50),
     categoria_pai_id INT,
     status BOOLEAN DEFAULT TRUE,
+    imagem VARCHAR(255),
     data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (categoria_pai_id) REFERENCES categorias(id) ON DELETE SET NULL
 );
@@ -48,6 +49,7 @@ CREATE TABLE produtos (
     codigo VARCHAR(50) UNIQUE,
     destaque BOOLEAN DEFAULT FALSE,
     status BOOLEAN DEFAULT TRUE,
+    imagem VARCHAR(255),
     data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -125,6 +127,7 @@ CREATE TABLE avaliacoes_produtos (
     avaliacao INT NOT NULL CHECK (avaliacao >= 1 AND avaliacao <= 5),
     comentario TEXT,
     status BOOLEAN DEFAULT TRUE,
+    imagem VARCHAR(255),
     data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
@@ -142,6 +145,7 @@ CREATE TABLE cupons (
     limite_uso INT,
     uso_atual INT DEFAULT 0,
     status BOOLEAN DEFAULT TRUE,
+    imagem VARCHAR(255),
     data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -168,6 +172,21 @@ CREATE TABLE configuracoes (
     descricao_loja TEXT,
     meta_keywords TEXT,
     meta_description TEXT,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Tabela de Imagens da Hero Section
+CREATE TABLE hero_images (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    titulo VARCHAR(100) NOT NULL,
+    subtitulo VARCHAR(200),
+    descricao TEXT,
+    imagem VARCHAR(255) NOT NULL,
+    link_botao VARCHAR(255),
+    texto_botao VARCHAR(50),
+    ordem INT DEFAULT 0,
+    status BOOLEAN DEFAULT TRUE,
     data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -204,12 +223,12 @@ INSERT INTO produtos (categoria_id, nome, descricao, preco, preco_promocional, e
 
 -- Inserir imagens para os produtos
 INSERT INTO imagens_produtos (produto_id, caminho_imagem, imagem_principal) VALUES
-(1, 'assets/img/produtos/iphone13pro.jpg', 1),
-(2, 'assets/img/produtos/galaxys21.jpg', 1),
-(3, 'assets/img/produtos/macbookpro.jpg', 1),
-(4, 'assets/img/produtos/dellxps13.jpg', 1),
-(5, 'assets/img/produtos/ipadpro.jpg', 1),
-(6, 'assets/img/produtos/airpodspro.jpg', 1);
+(1, 'uploads/produtos/683848402943d.webp', 1),
+(2, 'uploads/produtos/6838460dd7ee4.webp', 1),
+(3, 'uploads/produtos/68384216861ac.webp', 1),
+(4, 'uploads/produtos/683840702adeb.webp', 1),
+(5, 'uploads/produtos/68383d8693f79.webp', 1),
+(6, 'uploads/produtos/68383bf732d23.webp', 1);
 
 -- Inserir atributos para os produtos
 INSERT INTO atributos_produtos (produto_id, nome, valor) VALUES
@@ -226,4 +245,4 @@ INSERT INTO atributos_produtos (produto_id, nome, valor) VALUES
 (6, 'Cor', 'Branco');
 
 -- Inserir configurações padrão
-INSERT INTO configuracoes (nome_loja, email_contato) VALUES ('UNITEC', 'contato@unitec.com'); 
+INSERT INTO configuracoes (nome_loja, email_contato) VALUES ('UNITEC', 'contato@unitec.com');

@@ -1,10 +1,24 @@
 <?php
 session_start();
 require_once "config/database.php";
+require_once "includes/functions.php";
+require_once "config/sms_config.php"; // Carregar configurações da API
 
 // Verificar se o usuário está logado
 if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php?redirect=checkout.php");
+    exit;
+}
+
+// Verificar se há itens no carrinho
+$sql = "SELECT COUNT(*) FROM carrinho WHERE usuario_id = :usuario_id";
+$stmt = $conn->prepare($sql);
+$stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
+$stmt->execute();
+$tem_itens = $stmt->fetchColumn() > 0;
+
+if (!$tem_itens) {
+    header("Location: produtos.php?erro=carrinho_vazio");
     exit;
 }
 
@@ -15,22 +29,21 @@ $stmt->bindParam(':id', $_SESSION['usuario_id']);
 $stmt->execute();
 $usuario = $stmt->fetch();
 
-// Buscar itens do carrinho
-$sql = "SELECT c.*, p.nome, p.preco, p.preco_promocional, p.estoque, 
-        (SELECT caminho_imagem FROM imagens_produtos WHERE produto_id = p.id AND imagem_principal = 1 LIMIT 1) as imagem
+// Buscar itens do carrinho com informações dos produtos
+$sql = "SELECT c.*, p.nome as produto_nome, p.preco, p.preco_promocional, p.estoque 
         FROM carrinho c 
         JOIN produtos p ON c.produto_id = p.id 
         WHERE c.usuario_id = :usuario_id";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
 $stmt->execute();
-$itens = $stmt->fetchAll();
+$itens_carrinho = $stmt->fetchAll();
 
 // Calcular totais
 $subtotal = 0;
 $total_itens = 0;
 
-foreach ($itens as $item) {
+foreach ($itens_carrinho as $item) {
     $preco = $item['preco_promocional'] ? $item['preco_promocional'] : $item['preco'];
     $subtotal += $preco * $item['quantidade'];
     $total_itens += $item['quantidade'];
@@ -38,68 +51,112 @@ foreach ($itens as $item) {
 
 // Processar o pedido
 $mensagem = '';
+$mensagem_tipo = 'danger';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) {
     // Validar dados do formulário
-    $endereco = trim($_POST['endereco']);
-    $cidade = trim($_POST['cidade']);
-    $estado = trim($_POST['estado']);
-    $cep = trim($_POST['cep']);
-    $forma_pagamento = $_POST['forma_pagamento'];
+    $endereco = trim($_POST['endereco'] ?? '');
+    $cidade = trim($_POST['cidade'] ?? '');
+    $estado = trim($_POST['estado'] ?? '');
+    $nif = trim($_POST['nif'] ?? '');
+    $forma_pagamento = $_POST['forma_pagamento'] ?? '';
 
-    if (empty($endereco) || empty($cidade) || empty($estado) || empty($cep)) {
-        $mensagem = "Por favor, preencha todos os campos do endereço.";
-    } else {
+    // Validações
+    $erros = [];
+    if (empty($endereco)) $erros[] = "O endereço é obrigatório";
+    if (empty($cidade)) $erros[] = "A cidade é obrigatória";
+    if (empty($estado)) $erros[] = "O estado é obrigatório";
+    if (empty($nif)) $erros[] = "O NIF é obrigatório";
+    if (empty($forma_pagamento)) $erros[] = "A forma de pagamento é obrigatória";
+
+    if (empty($erros)) {
         try {
             $conn->beginTransaction();
 
             // Criar pedido
-            $sql = "INSERT INTO pedidos (usuario_id, endereco, cidade, estado, cep, forma_pagamento, total, status) 
-                    VALUES (:usuario_id, :endereco, :cidade, :estado, :cep, :forma_pagamento, :total, 'pendente')";
+            $sql = "INSERT INTO pedidos (
+                usuario_id, 
+                endereco_entrega, 
+                cidade_entrega, 
+                estado_entrega, 
+                cep_entrega, 
+                metodo_pagamento, 
+                valor_total, 
+                status, 
+                status_pagamento,
+                data_criacao
+            ) VALUES (
+                :usuario_id, 
+                :endereco, 
+                :cidade, 
+                :estado, 
+                :nif, 
+                :forma_pagamento, 
+                :total, 
+                'pendente',
+                'pendente',
+                NOW()
+            )";
             $stmt = $conn->prepare($sql);
             $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
             $stmt->bindParam(':endereco', $endereco);
             $stmt->bindParam(':cidade', $cidade);
             $stmt->bindParam(':estado', $estado);
-            $stmt->bindParam(':cep', $cep);
+            $stmt->bindParam(':nif', $nif);
             $stmt->bindParam(':forma_pagamento', $forma_pagamento);
             $stmt->bindParam(':total', $subtotal);
             $stmt->execute();
             $pedido_id = $conn->lastInsertId();
 
-            // Adicionar itens do pedido
-            foreach ($itens as $item) {
-                $preco = $item['preco_promocional'] ? $item['preco_promocional'] : $item['preco'];
+            if ($pedido_id) {
+                // Adicionar itens do pedido
+                foreach ($itens_carrinho as $item) {
+                    $preco = $item['preco_promocional'] ? $item['preco_promocional'] : $item['preco'];
+                    
+                    // Verificar estoque antes de adicionar
+                    if ($item['quantidade'] > $item['estoque']) {
+                        throw new Exception("Quantidade indisponível para o produto: " . $item['produto_nome']);
+                    }
+
+                    $sql = "INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco) 
+                            VALUES (:pedido_id, :produto_id, :quantidade, :preco)";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bindParam(':pedido_id', $pedido_id);
+                    $stmt->bindParam(':produto_id', $item['produto_id']);
+                    $stmt->bindParam(':quantidade', $item['quantidade']);
+                    $stmt->bindParam(':preco', $preco);
+                    $stmt->execute();
+
+                    // Atualizar estoque
+                    $sql = "UPDATE produtos SET estoque = estoque - :quantidade WHERE id = :produto_id";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bindParam(':quantidade', $item['quantidade']);
+                    $stmt->bindParam(':produto_id', $item['produto_id']);
+                    $stmt->execute();
+                }
+
+                // Limpar carrinho
+                $sql = "DELETE FROM carrinho WHERE usuario_id = :usuario_id";
+                $stmt = $conn->prepare($sql);
+                $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
+                $stmt->execute();
+
+                $conn->commit();
                 
-                $sql = "INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco_unitario) 
-                        VALUES (:pedido_id, :produto_id, :quantidade, :preco_unitario)";
-                $stmt = $conn->prepare($sql);
-                $stmt->bindParam(':pedido_id', $pedido_id);
-                $stmt->bindParam(':produto_id', $item['produto_id']);
-                $stmt->bindParam(':quantidade', $item['quantidade']);
-                $stmt->bindParam(':preco_unitario', $preco);
-                $stmt->execute();
-
-                // Atualizar estoque
-                $sql = "UPDATE produtos SET estoque = estoque - :quantidade WHERE id = :produto_id";
-                $stmt = $conn->prepare($sql);
-                $stmt->bindParam(':quantidade', $item['quantidade']);
-                $stmt->bindParam(':produto_id', $item['produto_id']);
-                $stmt->execute();
+                // Redirecionar para página de confirmação
+                header("Location: pedido-confirmado.php?id=" . $pedido_id);
+                exit;
+            } else {
+                throw new Exception("Erro ao criar o pedido");
             }
-
-            // Limpar carrinho
-            $sql = "DELETE FROM carrinho WHERE usuario_id = :usuario_id";
-            $stmt = $conn->prepare($sql);
-            $stmt->bindParam(':usuario_id', $_SESSION['usuario_id']);
-            $stmt->execute();
-
-            $conn->commit();
-            header("Location: pedido-confirmado.php?id=" . $pedido_id);
-            exit;
         } catch (Exception $e) {
             $conn->rollBack();
-            $mensagem = "Erro ao processar o pedido. Por favor, tente novamente.";
+            $mensagem = "Erro ao processar o pedido: " . $e->getMessage();
+            $mensagem_tipo = 'danger';
         }
+    } else {
+        $mensagem = "Por favor, corrija os seguintes erros:<br>" . implode("<br>", $erros);
+        $mensagem_tipo = 'danger';
     }
 }
 ?>
@@ -167,27 +224,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
             border-top: 1px solid #d2d2d7;
         }
         .payment-method {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         .payment-method label {
             display: flex;
             align-items: center;
-            padding: 15px;
-            border: 1px solid #d2d2d7;
-            border-radius: 8px;
+            padding: 20px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
             cursor: pointer;
             transition: all 0.3s ease;
+            background: #fafafa;
+            position: relative;
         }
         .payment-method label:hover {
             border-color: #0071e3;
+            background: #f0f8ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.15);
         }
         .payment-method input[type="radio"] {
-            margin-right: 10px;
+            margin-right: 15px;
+            transform: scale(1.2);
+        }
+        .payment-method input[type="radio"]:checked + i + strong {
+            color: #0071e3;
         }
         .payment-method-icon {
+            margin-right: 15px;
+            font-size: 1.5rem;
+            width: 30px;
+            text-align: center;
+        }
+        .payment-method strong {
+            font-size: 1.1rem;
             margin-right: 10px;
-            font-size: 1.2rem;
-            color: #6e6e73;
+        }
+        .payment-method small {
+            font-size: 0.85rem;
+            margin-top: 2px;
         }
         .alert {
             margin-bottom: 20px;
@@ -200,10 +275,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
     <div class="checkout-section">
         <div class="container">
             <?php if ($mensagem): ?>
-                <div class="alert alert-danger"><?php echo $mensagem; ?></div>
+                <div class="alert alert-<?php echo $mensagem_tipo; ?> alert-dismissible fade show" role="alert">
+                    <?php echo $mensagem; ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
             <?php endif; ?>
 
-            <?php if (empty($itens)): ?>
+            <?php if (empty($itens_carrinho)): ?>
                 <div class="checkout-container">
                     <div class="text-center">
                         <i class="fas fa-shopping-cart fa-3x mb-3 text-muted"></i>
@@ -235,7 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="endereco" class="form-label">Endereço</label>
+                                    <label for="endereco" class="form-label">Endereço de Entrega</label>
                                     <input type="text" class="form-control" id="endereco" name="endereco" required>
                                 </div>
 
@@ -249,38 +327,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
                                         <input type="text" class="form-control" id="estado" name="estado" required>
                                     </div>
                                     <div class="col-md-3 mb-3">
-                                        <label for="cep" class="form-label">CEP</label>
-                                        <input type="text" class="form-control" id="cep" name="cep" required>
+                                        <label for="nif" class="form-label">NIF</label>
+                                        <input type="text" class="form-control" id="nif" name="nif" required>
                                     </div>
                                 </div>
 
                                 <h3 class="checkout-title mt-4">Forma de Pagamento</h3>
                                 
+                                <!-- Informações sobre métodos de pagamento -->
+                                <div class="alert alert-light mb-4">
+                                    <h6><i class="fas fa-info-circle me-2 text-primary"></i>Métodos de Pagamento Disponíveis</h6>
+                                    <div class="row mt-3">
+                                        <div class="col-md-4">
+                                            <small class="text-muted">
+                                                <strong>Multicaixa Express:</strong> Sistema EMIS - aceito em todos os bancos
+                                            </small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <small class="text-muted">
+                                                <strong>Referência:</strong> Pague em qualquer banco com uma referência única
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="payment-method">
                                     <label>
-                                        <input type="radio" name="forma_pagamento" value="cartao" required>
-                                        <i class="fas fa-credit-card payment-method-icon"></i>
-                                        Cartão de Crédito
+                                        <input type="radio" name="forma_pagamento" value="multicaixa_express">
+                                        <i class="fas fa-credit-card payment-method-icon" style="color: #1e40af;"></i>
+                                        <strong>Multicaixa Express</strong>
+                                        <small class="text-muted d-block">Sistema EMIS - Pagamento eletrônico</small>
                                     </label>
                                 </div>
 
                                 <div class="payment-method">
                                     <label>
-                                        <input type="radio" name="forma_pagamento" value="boleto">
-                                        <i class="fas fa-barcode payment-method-icon"></i>
-                                        Boleto Bancário
+                                        <input type="radio" name="forma_pagamento" value="pagamento_referencia">
+                                        <i class="fas fa-barcode payment-method-icon" style="color: #7c3aed;"></i>
+                                        <strong>Pagamento por Referência</strong>
+                                        <small class="text-muted d-block">Referência única para pagar em qualquer banco</small>
+                                    </label>
+                                </div>
+
+                                <!-- Campo para mostrar referência de pagamento -->
+                                <div id="referencia-pagamento" class="mb-3" style="display: none;">
+                                    <div class="alert alert-info">
+                                        <h6><i class="fas fa-info-circle me-2"></i>Referência de Pagamento</h6>
+                                        <p class="mb-2">Use esta referência para pagar em qualquer banco ou terminal Multicaixa:</p>
+                                        <div class="d-flex align-items-center">
+                                            <input type="text" class="form-control me-2" id="referencia-gerada" readonly 
+                                                   value="<?php echo 'REF-' . date('Ymd') . '-' . strtoupper(substr(md5(uniqid()), 0, 8)); ?>">
+                                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="copiarReferencia()">
+                                                <i class="fas fa-copy"></i> Copiar
+                                            </button>
+                                        </div>
+                                        <small class="text-muted mt-2 d-block">
+                                            <i class="fas fa-clock me-1"></i>Esta referência é válida por 24 horas
+                                        </small>
+                                    </div>
+                                </div>
+
+                                <div class="payment-method">
+                                    <label>
+                                        <input type="radio" name="forma_pagamento" value="transferencia">
+                                        <i class="fas fa-exchange-alt payment-method-icon" style="color: #059669;"></i>
+                                        <strong>Transferência Bancária</strong>
+                                        <small class="text-muted d-block">Transferência direta</small>
                                     </label>
                                 </div>
 
                                 <div class="payment-method">
                                     <label>
-                                        <input type="radio" name="forma_pagamento" value="pix">
-                                        <i class="fas fa-qrcode payment-method-icon"></i>
-                                        PIX
+                                        <input type="radio" name="forma_pagamento" value="dinheiro">
+                                        <i class="fas fa-money-bill-wave payment-method-icon" style="color: #16a34a;"></i>
+                                        <strong>Dinheiro Físico</strong>
+                                        <small class="text-muted d-block">Pagamento na entrega</small>
                                     </label>
                                 </div>
 
-                                <button type="submit" name="finalizar_pedido" class="btn btn-primary btn-lg w-100 mt-4">
+                                <button type="submit" name="finalizar_pedido" class="btn btn-info btn-lg w-100 mt-4 text-white">
                                     Finalizar Pedido
                                 </button>
                             </form>
@@ -291,23 +416,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
                         <div class="order-summary">
                             <h3 class="checkout-title">Resumo do Pedido</h3>
                             
-                            <?php foreach ($itens as $item): ?>
-                                <div class="order-item">
-                                    <img src="<?php echo $item['imagem'] ?: 'assets/img/no-image.jpg'; ?>" 
-                                         class="order-item-image" 
-                                         alt="<?php echo htmlspecialchars($item['nome']); ?>">
-                                    
-                                    <div class="order-item-info">
-                                        <h4 class="order-item-title"><?php echo htmlspecialchars($item['nome']); ?></h4>
-                                        <div class="order-item-price">
-                                            <?php if ($item['preco_promocional']): ?>
-                                                <span class="text-decoration-line-through">R$ <?php echo number_format($item['preco'], 2, ',', '.'); ?></span>
-                                                R$ <?php echo number_format($item['preco_promocional'], 2, ',', '.'); ?>
-                                            <?php else: ?>
-                                                R$ <?php echo number_format($item['preco'], 2, ',', '.'); ?>
-                                            <?php endif; ?>
-                                            x <?php echo $item['quantidade']; ?>
-                                        </div>
+                            <?php foreach ($itens_carrinho as $item): ?>
+                                <div class="cart-item">
+                                    <div class="item-info">
+                                        <span class="item-name"><?php echo htmlspecialchars($item['produto_nome']); ?></span>
+                                        <span class="item-quantity">x<?php echo $item['quantidade']; ?></span>
+                                    </div>
+                                    <div class="item-price">
+                                        Kz <?php echo number_format(($item['preco_promocional'] ? $item['preco_promocional'] : $item['preco']) * $item['quantidade'], 2, ',', '.'); ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -315,7 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
                             <div class="order-summary-total">
                                 <div class="d-flex justify-content-between mb-2">
                                     <span>Subtotal (<?php echo $total_itens; ?> itens)</span>
-                                    <span>R$ <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
+                                    <span>Kz <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
                                 </div>
                                 <div class="d-flex justify-content-between mb-2">
                                     <span>Frete</span>
@@ -323,7 +439,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
                                 </div>
                                 <div class="d-flex justify-content-between fw-bold">
                                     <span>Total</span>
-                                    <span>R$ <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
+                                    <span>Kz <?php echo number_format($subtotal, 2, ',', '.'); ?></span>
                                 </div>
                             </div>
                         </div>
@@ -337,14 +453,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['finalizar_pedido'])) 
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Máscara para CEP
-        document.getElementById('cep').addEventListener('input', function (e) {
+        // Máscara para NIF
+        document.getElementById('nif').addEventListener('input', function (e) {
             let value = e.target.value.replace(/\D/g, '');
-            if (value.length > 5) {
-                value = value.substring(0, 5) + '-' + value.substring(5, 8);
+            if (value.length > 3) {
+                value = value.substring(0, 3) + '-' + value.substring(3, 6) + '-' + value.substring(6, 9);
             }
             e.target.value = value;
         });
+
+        // Melhorar experiência das opções de pagamento
+        document.addEventListener('DOMContentLoaded', function() {
+            const paymentMethods = document.querySelectorAll('input[name="forma_pagamento"]');
+            const paymentLabels = document.querySelectorAll('.payment-method label');
+            const referenciaDiv = document.getElementById('referencia-pagamento');
+
+            paymentMethods.forEach(function(radio, index) {
+                radio.addEventListener('change', function() {
+                    // Remover classe ativa de todos os labels
+                    paymentLabels.forEach(label => {
+                        label.style.borderColor = '#e5e7eb';
+                        label.style.background = '#fafafa';
+                        label.style.transform = 'translateY(0)';
+                        label.style.boxShadow = 'none';
+                    });
+
+                    // Adicionar classe ativa ao label selecionado
+                    if (this.checked) {
+                        const selectedLabel = paymentLabels[index];
+                        selectedLabel.style.borderColor = '#0071e3';
+                        selectedLabel.style.background = '#f0f8ff';
+                        selectedLabel.style.transform = 'translateY(-2px)';
+                        selectedLabel.style.boxShadow = '0 4px 12px rgba(0, 113, 227, 0.15)';
+                    }
+
+                    // Mostrar/ocultar campo de referência
+                    if (this.value === 'pagamento_referencia') {
+                        referenciaDiv.style.display = 'block';
+                        // Gerar nova referência
+                        const novaReferencia = 'REF-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.random().toString(36).substr(2, 8).toUpperCase();
+                        document.getElementById('referencia-gerada').value = novaReferencia;
+                    } else {
+                        referenciaDiv.style.display = 'none';
+                    }
+                });
+            });
+
+            // Validação do formulário
+            document.getElementById('checkout-form').addEventListener('submit', function(e) {
+                const selectedPayment = document.querySelector('input[name="forma_pagamento"]:checked');
+                
+                if (!selectedPayment) {
+                    e.preventDefault();
+                    alert('Por favor, selecione uma forma de pagamento.');
+                    return false;
+                }
+
+                // Redirecionar para simulação do Multicaixa Express
+                if (selectedPayment.value === 'multicaixa_express') {
+                    e.preventDefault();
+                    const valor = <?php echo $subtotal; ?>;
+                    const pedido_id = '<?php echo time(); ?>'; // ID temporário
+                    
+                    // Verificar se API real está habilitada
+                    <?php if (defined('MULTICAIXA_API_ENABLED') && MULTICAIXA_API_ENABLED): ?>
+                        // Usar API real
+                        window.location.href = `multicaixa_simulator.php?pedido_id=${pedido_id}&valor=${valor}&api_real=true`;
+                    <?php else: ?>
+                        // Usar simulação
+                        window.location.href = `multicaixa_simulator.php?pedido_id=${pedido_id}&valor=${valor}`;
+                    <?php endif; ?>
+                    return false;
+                }
+            });
+        });
+
+        // Função para copiar referência
+        function copiarReferencia() {
+            const referenciaInput = document.getElementById('referencia-gerada');
+            referenciaInput.select();
+            referenciaInput.setSelectionRange(0, 99999); // Para dispositivos móveis
+            
+            try {
+                document.execCommand('copy');
+                
+                // Feedback visual
+                const btn = event.target.closest('button');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-success');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-primary');
+                }, 2000);
+                
+            } catch (err) {
+                console.error('Erro ao copiar: ', err);
+                alert('Erro ao copiar a referência. Tente copiar manualmente.');
+            }
+        }
+
+        // Função para gerar referência via API (se disponível)
+        async function gerarReferenciaAPI(valor, pedidoId) {
+            try {
+                const formData = new FormData();
+                formData.append('action', 'gerar_referencia');
+                formData.append('valor', valor);
+                formData.append('pedido_id', pedidoId);
+                formData.append('descricao', 'Compra UNITEC Store');
+                
+                const response = await fetch('api/multicaixa_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const resultado = await response.json();
+                
+                if (resultado.success) {
+                    return resultado.data;
+                } else {
+                    throw new Error(resultado.error);
+                }
+            } catch (error) {
+                console.error('Erro ao gerar referência via API:', error);
+                return null;
+            }
+        }
     </script>
 </body>
 </html> 
